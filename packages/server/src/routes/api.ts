@@ -8,7 +8,7 @@ import { LayoutStore, LayoutValidationError } from '../engine/layouts.js';
 import type { OrreryStore } from '../engine/store.js';
 
 const MAX_BODY = 1024 * 1024;
-const LOCAL_ORIGIN = /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d{1,5})?$/i;
+const LOCAL_ORIGIN = /^(?:https?:\/\/(?:localhost|127\.0\.0\.1|tauri\.localhost)(?::\d{1,5})?|tauri:\/\/localhost)$/i;
 const SHELL_CHARACTERS = /[\u0000-\u0020\u007f"&|<>^()%!]/;
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',

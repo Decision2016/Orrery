@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$NoBrowser,
+    [switch]$Windowed,
     [switch]$Kiosk,
     [ValidateRange(1, 65535)][int]$Port = 4318
 )
@@ -56,5 +57,5 @@ if (-not (Test-OrreryHealth)) {
 
 Write-Host "Orrery Observatory is ready at $url"
 if (-not $NoBrowser) {
-    & (Join-Path $PSScriptRoot 'launch-kiosk.ps1') -Url $url -Kiosk:$Kiosk
+    & (Join-Path $PSScriptRoot 'launch-kiosk.ps1') -Url $url -Windowed:$Windowed -Kiosk:$Kiosk
 }

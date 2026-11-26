@@ -164,6 +164,9 @@ export class T3Adapter implements CollectorAdapter {
       const subagents = readRows(db, `SELECT s.*, child.title AS child_title FROM ${projection}subagents s
         LEFT JOIN ${projection}threads child ON child.thread_id = s.child_thread_id
         WHERE s.thread_id IN (SELECT value FROM json_each(?)) ORDER BY s.started_at DESC`, selectedIds);
+      const childSubagents = new Map(readRows(db, `SELECT child_thread_id, status, started_at, completed_at
+        FROM ${projection}subagents WHERE child_thread_id IN (SELECT value FROM json_each(?))
+        ORDER BY updated_at DESC`, selectedIds).map(row => [String(row.child_thread_id), row]));
 
       for (const thread of threads.filter(row => displayIds.has(String(row.thread_id)))) {
         const id = String(thread.thread_id);
@@ -173,6 +176,7 @@ export class T3Adapter implements CollectorAdapter {
         const run = candidates.find(run => isLive(run.status) && run.status !== 'queued')
           ?? candidates.find(run => run.status === 'queued') ?? candidates[0]
           ?? readRows(db, `SELECT * FROM ${projection}runs WHERE thread_id = ? ORDER BY requested_at DESC LIMIT 1`, id)[0];
+        const subagentSelf = childSubagents.get(id);
         const runPayload = record(parseJson(run?.payload_json));
         const runId = stringValue(run?.run_id);
         const model = record(runPayload.modelSelection ?? payload.modelSelection);
@@ -193,11 +197,11 @@ export class T3Adapter implements CollectorAdapter {
           tokens.contextWindow = max;
           if (used !== undefined) tokens.contextPercent = Math.min(100, Math.max(0, used / max * 100));
         }
-        const startedAt = timestamp(runPayload.startedAt ?? run?.requested_at ?? thread.created_at) ?? at;
-        const completedAt = timestamp(run?.completed_at);
+        const startedAt = timestamp(runPayload.startedAt ?? run?.requested_at ?? subagentSelf?.started_at ?? thread.created_at) ?? at;
+        const completedAt = timestamp(run?.completed_at ?? subagentSelf?.completed_at);
         const updatedAt = [timestamp(thread.updated_at), completedAt, timestamp(binding?.updated_at), startedAt]
           .filter((value): value is string => !!value).sort().at(-1) ?? startedAt;
-        const status = taskStatus(run?.status);
+        const status = taskStatus(run?.status ?? subagentSelf?.status ?? binding?.status, 'completed');
         const steps = runId && (isLive(run.status) || Date.parse(completedAt ?? startedAt) >= windowStart)
           ? readSteps(db, id, runId, startedAt, itemColumns) : [];
         const children: SubagentNode[] = subagents.filter(row => row.thread_id === id).map(row => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, GitFork, Hash, Hourglass, LayoutGrid, ListOrdered, LockKeyhole, Minimize, PencilRuler, Play, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, GitFork, Hash, Hourglass, LayoutGrid, ListOrdered, LockKeyhole, Minimize, PencilRuler, Play, Plus, RotateCcw, Search, Trash2, Type, X } from 'lucide-react';
 import type { SnapshotSummary } from '@orrery/shared';
 import type { ConnectionState } from '../hooks/useOrreryStream';
 import type { useLayouts } from '../hooks/useLayouts';
@@ -8,6 +8,13 @@ import { formatClock, formatTokens } from '../lib/format';
 import { Dialog } from './Telemetry';
 
 export type SourceFilter = 'all' | 't3' | 'codex' | 'merged';
+export type TextScale = 'normal' | 'large' | 'xlarge';
+const scaleLabels: Record<TextScale, string> = {
+  normal: '标准字号',
+  large: '14.1" 大字',
+  xlarge: '远距超大',
+};
+const scaleOrder: TextScale[] = ['normal', 'large', 'xlarge'];
 const filters = [
   ['all', 'ALL', '所有来源'], ['t3', 'T3 Code', '含 T3 → Codex'], ['codex', 'Codex', 'Codex App、CLI 与 T3 → Codex'], ['merged', 'Merged', '仅跨来源合并的任务'],
 ] as const;
@@ -33,10 +40,12 @@ interface HudProps {
   onDrawer: () => void;
   notifications: boolean;
   onNotifications: () => void;
+  textScale: TextScale;
+  onTextScale: (value: TextScale) => void;
   onNotice: (message: string) => void;
 }
 
-export function HudBar({ summary, connection, layouts, filter, onFilter, query, onQuery, editing, onEdit, onDrawer, notifications, onNotifications, onNotice }: HudProps) {
+export function HudBar({ summary, connection, layouts, filter, onFilter, query, onQuery, editing, onEdit, onDrawer, notifications, onNotifications, textScale, onTextScale, onNotice }: HudProps) {
   const search = useRef<HTMLInputElement>(null);
   const [modal, setModal] = useState<'save' | 'delete' | null>(null);
   const [name, setName] = useState('');
@@ -96,6 +105,13 @@ export function HudBar({ summary, connection, layouts, filter, onFilter, query, 
         <button className="hud-button" onClick={() => { setName(''); setModal('save'); }} aria-label="另存预设" title="另存预设"><CopyPlus size={14} /><span>另存预设</span></button>
         {!layouts.activePreset.builtIn && <button className="icon-button" onClick={() => setModal('delete')} aria-label="删除预设" title="删除预设"><Trash2 size={14} /></button>}
       </>}
+      <button className={`hud-button ${textScale !== 'normal' ? 'is-editing' : ''}`} onClick={() => {
+        const next = scaleOrder[(scaleOrder.indexOf(textScale) + 1) % scaleOrder.length];
+        onTextScale(next);
+        onNotice(`字号已切换为「${scaleLabels[next]}」`);
+      }} aria-label="切换字号大小" title={`当前：${scaleLabels[textScale]}（点击循环切换标准 / 14.1" 大字 / 远距超大）`}>
+        <Type size={14} /><span>{scaleLabels[textScale]}</span>
+      </button>
       <button className={`icon-button ${notifications ? 'tone-cyan' : ''}`} onClick={onNotifications} aria-label="桌面通知" title={notifications ? '关闭桌面通知' : '启用桌面通知'} aria-pressed={notifications}>
         {notifications ? <Bell size={15} /> : <BellOff size={15} />}</button>
       <button className="icon-button" aria-label={fullscreen ? '退出全屏' : '进入全屏'} title={fullscreen ? '退出全屏' : '进入全屏'} onClick={async () => {

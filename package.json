@@ -1,0 +1,30 @@
+{
+  "name": "orrery",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Orrery — Local AI Agent Observatory & 3840x1100 GridStack Control Deck for T3 Code and Codex",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "scripts": {
+    "build:shared": "npm --workspace @orrery/shared run build",
+    "build:server": "npm --workspace @orrery/server run build",
+    "build:web": "npm --workspace @orrery/web run build",
+    "build": "npm run build:shared && npm run build:server && npm run build:web",
+    "dev:server": "npm --workspace @orrery/server run dev",
+    "dev:web": "npm --workspace @orrery/web run dev",
+    "start": "node packages/server/dist/index.js",
+    "test": "npm --workspace @orrery/server run test",
+    "typecheck": "npm --workspace @orrery/shared run typecheck && npm --workspace @orrery/server run typecheck && npm --workspace @orrery/web run typecheck",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}

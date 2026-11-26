@@ -390,6 +390,120 @@ button.event-row:hover { background: #152338; }
   .timeline-legend { gap: 5px; }
   .agent-resources { gap: 5px; }
 }
+/* 14.1" 3840x1100 readable text-scale presets (scales typography cleanly without breaking GridStack geometry) */
+.orrery-deck { --s: 1; }
+.orrery-deck[data-text-scale="large"] { --s: 1.24; }
+.orrery-deck[data-text-scale="xlarge"] { --s: 1.42; }
+
+.orrery-deck[data-text-scale="large"],
+.orrery-deck[data-text-scale="xlarge"] {
+  font-size: calc(14px * var(--s));
+}
+.orrery-deck[data-text-scale="large"] .hud,
+.orrery-deck[data-text-scale="xlarge"] .hud {
+  flex: 0 0 calc(46px * var(--s));
+  height: calc(46px * var(--s));
+}
+.orrery-deck[data-text-scale="large"] .wordmark b,
+.orrery-deck[data-text-scale="xlarge"] .wordmark b { font-size: calc(18px * var(--s)); }
+.orrery-deck[data-text-scale="large"] .hud-kpi .kpi-label,
+.orrery-deck[data-text-scale="xlarge"] .hud-kpi .kpi-label,
+.orrery-deck[data-text-scale="large"] .filter-group button,
+.orrery-deck[data-text-scale="xlarge"] .filter-group button,
+.orrery-deck[data-text-scale="large"] .hud-button,
+.orrery-deck[data-text-scale="xlarge"] .hud-button,
+.orrery-deck[data-text-scale="large"] .preset-select select,
+.orrery-deck[data-text-scale="xlarge"] .preset-select select,
+.orrery-deck[data-text-scale="large"] .search-box input,
+.orrery-deck[data-text-scale="xlarge"] .search-box input { font-size: calc(12.5px * var(--s)); }
+.orrery-deck[data-text-scale="large"] .hud-kpi strong,
+.orrery-deck[data-text-scale="xlarge"] .hud-kpi strong { font-size: calc(16px * var(--s)); }
+.orrery-deck[data-text-scale="large"] .signal-clock,
+.orrery-deck[data-text-scale="xlarge"] .signal-clock { font-size: calc(15px * var(--s)); }
+
+.orrery-deck[data-text-scale="large"] .widget-head,
+.orrery-deck[data-text-scale="xlarge"] .widget-head {
+  height: calc(29px * var(--s));
+  min-height: calc(29px * var(--s));
+}
+.orrery-deck[data-text-scale="large"] .widget-head h2,
+.orrery-deck[data-text-scale="xlarge"] .widget-head h2 { font-size: calc(13px * var(--s)); }
+.orrery-deck[data-text-scale="large"] .frame-badge,
+.orrery-deck[data-text-scale="xlarge"] .frame-badge { font-size: calc(11.5px * var(--s)); }
+
+.orrery-deck[data-text-scale="large"] .muted,
+.orrery-deck[data-text-scale="xlarge"] .muted,
+.orrery-deck[data-text-scale="large"] .task-location,
+.orrery-deck[data-text-scale="xlarge"] .task-location,
+.orrery-deck[data-text-scale="large"] .task-runtime,
+.orrery-deck[data-text-scale="xlarge"] .task-runtime,
+.orrery-deck[data-text-scale="large"] .task-metrics,
+.orrery-deck[data-text-scale="xlarge"] .task-metrics,
+.orrery-deck[data-text-scale="large"] .inspector-fields dt,
+.orrery-deck[data-text-scale="xlarge"] .inspector-fields dt,
+.orrery-deck[data-text-scale="large"] .inspector-fields dd,
+.orrery-deck[data-text-scale="xlarge"] .inspector-fields dd,
+.orrery-deck[data-text-scale="large"] .topology,
+.orrery-deck[data-text-scale="xlarge"] .topology,
+.orrery-deck[data-text-scale="large"] .step-chain li,
+.orrery-deck[data-text-scale="xlarge"] .step-chain li,
+.orrery-deck[data-text-scale="large"] .schedule-rule,
+.orrery-deck[data-text-scale="xlarge"] .schedule-rule,
+.orrery-deck[data-text-scale="large"] .lane-label,
+.orrery-deck[data-text-scale="xlarge"] .lane-label,
+.orrery-deck[data-text-scale="large"] .segments button,
+.orrery-deck[data-text-scale="xlarge"] .segments button,
+.orrery-deck[data-text-scale="large"] .status-badge,
+.orrery-deck[data-text-scale="xlarge"] .status-badge,
+.orrery-deck[data-text-scale="large"] .action-button,
+.orrery-deck[data-text-scale="xlarge"] .action-button { font-size: calc(12.5px * var(--s)); }
+
+.orrery-deck[data-text-scale="large"] .source-badge,
+.orrery-deck[data-text-scale="xlarge"] .source-badge,
+.orrery-deck[data-text-scale="large"] .step-pill,
+.orrery-deck[data-text-scale="xlarge"] .step-pill,
+.orrery-deck[data-text-scale="large"] .subagent-count,
+.orrery-deck[data-text-scale="xlarge"] .subagent-count,
+.orrery-deck[data-text-scale="large"] .event-meta time,
+.orrery-deck[data-text-scale="xlarge"] .event-meta time,
+.orrery-deck[data-text-scale="large"] .event-level,
+.orrery-deck[data-text-scale="xlarge"] .event-level,
+.orrery-deck[data-text-scale="large"] .agent-counts dt,
+.orrery-deck[data-text-scale="xlarge"] .agent-counts dt,
+.orrery-deck[data-text-scale="large"] .agent-resources b,
+.orrery-deck[data-text-scale="xlarge"] .agent-resources b,
+.orrery-deck[data-text-scale="large"] .gantt-bar span,
+.orrery-deck[data-text-scale="xlarge"] .gantt-bar span,
+.orrery-deck[data-text-scale="large"] .tree-node small,
+.orrery-deck[data-text-scale="xlarge"] .tree-node small,
+.orrery-deck[data-text-scale="large"] .tree-step,
+.orrery-deck[data-text-scale="xlarge"] .tree-step { font-size: calc(11.5px * var(--s)); }
+
+.orrery-deck[data-text-scale="large"] .task-title,
+.orrery-deck[data-text-scale="xlarge"] .task-title,
+.orrery-deck[data-text-scale="large"] .alert-title,
+.orrery-deck[data-text-scale="xlarge"] .alert-title,
+.orrery-deck[data-text-scale="large"] .agent-identity h3,
+.orrery-deck[data-text-scale="xlarge"] .agent-identity h3,
+.orrery-deck[data-text-scale="large"] .event-summary,
+.orrery-deck[data-text-scale="xlarge"] .event-summary { font-size: calc(15px * var(--s)); line-height: 1.38; }
+
+.orrery-deck[data-text-scale="large"] .inspect-title,
+.orrery-deck[data-text-scale="xlarge"] .inspect-title { font-size: calc(18px * var(--s)); }
+.orrery-deck[data-text-scale="large"] .agent-counts dd,
+.orrery-deck[data-text-scale="xlarge"] .agent-counts dd,
+.orrery-deck[data-text-scale="large"] .token-breakdown dd,
+.orrery-deck[data-text-scale="xlarge"] .token-breakdown dd,
+.orrery-deck[data-text-scale="large"] .host-stats dd,
+.orrery-deck[data-text-scale="xlarge"] .host-stats dd,
+.orrery-deck[data-text-scale="large"] .burn-kpis dd,
+.orrery-deck[data-text-scale="xlarge"] .burn-kpis dd { font-size: calc(17px * var(--s)); }
+
+.orrery-deck[data-text-scale="large"] .lane,
+.orrery-deck[data-text-scale="xlarge"] .lane { min-height: calc(28px * var(--s)); }
+.orrery-deck[data-text-scale="large"] .gantt-bar,
+.orrery-deck[data-text-scale="xlarge"] .gantt-bar { height: calc(18px * var(--s)); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

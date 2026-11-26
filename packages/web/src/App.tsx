@@ -7,7 +7,7 @@ import { isActive, sourceNames } from './lib/format';
 import { readLocal, writeLocal } from './lib/storage';
 import { GridCanvas } from './components/GridCanvas';
 import { HudBar } from './components/HudBar';
-import type { SourceFilter } from './components/HudBar';
+import type { SourceFilter, TextScale } from './components/HudBar';
 import { Dialog, EmptyState, widgetIcons } from './components/Telemetry';
 import { WidgetDrawer } from './components/WidgetDrawer';
 import { AgentsWidget } from './components/widgets/AgentsWidget';
@@ -31,6 +31,12 @@ export default function App() {
   const [detail, setDetail] = useState<TaskItem | null>(null);
   const [inspectDialog, setInspectDialog] = useState(false);
   const [notice, setNotice] = useState('');
+  const [textScale, setTextScale] = useState<TextScale>(() => {
+    const saved = readLocal('orrery.textScale');
+    if (saved === 'normal' || saved === 'large' || saved === 'xlarge') return saved;
+    const isShortUltrawide = window.innerWidth / Math.max(1, window.innerHeight) >= 2.6 && window.innerHeight <= 760;
+    return isShortUltrawide ? 'large' : 'normal';
+  });
   const [notifications, setNotifications] = useState(() => readLocal('orrery.notifications') === true
     && (('Notification' in window && Notification.permission === 'granted') || Boolean(window.__TAURI_INTERNALS__)));
   const hasInspector = layouts.activePreset.items.some(i => i.type === 'inspector');
@@ -104,9 +110,10 @@ export default function App() {
     }
   }
 
-  return <div className="orrery-deck h-screen w-screen flex flex-col overflow-hidden">
+  return <div className="orrery-deck h-screen w-screen flex flex-col overflow-hidden" data-text-scale={textScale}>
     <HudBar summary={snapshot?.summary} connection={connection} layouts={layouts} filter={filter} onFilter={setFilter} query={query} onQuery={setQuery}
       editing={editing} onEdit={() => { setEditing(!editing); setDrawer(false); }} onDrawer={() => setDrawer(true)} notifications={notifications}
+      textScale={textScale} onTextScale={next => { setTextScale(next); writeLocal('orrery.textScale', next); }}
       onNotifications={async () => {
         const enabled = !notifications && await requestAlerts().catch(() => false);
         if (!notifications && !enabled) setNotice('桌面通知未获授权，可在系统或浏览器设置中启用');
