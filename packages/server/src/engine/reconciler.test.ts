@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import {
-  DEFAULT_PRESETS, type AgentRuntime, type AttentionAlert, type EventEntry, type LayoutsPayload,
+  DEFAULT_PRESETS, type AgentRuntime, type AttentionAlert, type EventEntry, type LayoutsPayload, type ModelUsageEntry, type QuotaWindow,
   type OrrerySnapshot, type ProcessMetric, type SubagentNode, type TaskItem, type TaskStep,
 } from '@orrery/shared';
 import type { CollectorAdapter, CollectorOutput } from '../adapters/types.js';
@@ -193,6 +193,51 @@ test('daily usage survives eviction, joins sessions lacking native IDs, and rese
   assert.equal(joined.summary.todayTokens, 40);
   assert.equal(reconcileOutputs([], { ...options, history }).summary.todayTokens, 40);
   assert.equal(reconcileOutputs([], { ...options, nowMs: now + 86_400_000, history }).summary.todayTokens, 0);
+});
+
+test('model usage prefers native reports, sorts by both totals, and counts each source once in daily usage and history', () => {
+  const model = (providerId: string, id: string, todayTokens: number, tokens24h: number): ModelUsageEntry => ({
+    providerId, providerName: providerId, model: id, todayTokens, tokens24h, inputTokens24h: tokens24h,
+    cachedTokens24h: 0, outputTokens24h: 0, calls24h: 1, sessions24h: 1, lastUsedAt: at(),
+  });
+  const codex = model('codex', 'gpt-test', 70, 100), gemini = model('antigravity', 'gemini-test', 20, 120);
+  const pi = model('pi', 'shared-name', 40, 200), grok = model('grok', 'shared-name', 30, 200);
+  const t3 = output('t3', { modelUsage: [
+    { ...codex, todayTokens: 500, tokens24h: 500 }, { ...gemini, todayTokens: 800, tokens24h: 1000 }, grok, pi,
+  ], tasks: [task('wrapped', { provider: 'antigravity', tokens: tokens(800) }),
+    task('pi-task', { provider: 'pi', model: pi.model, tokens: tokens(90) }), task('other', { provider: 'other', tokens: tokens(9) })] });
+  const reports = [t3, output('codex', { modelUsage: [codex], todayTokens: 75 }),
+    output('antigravity', { modelUsage: [gemini], todayTokens: 20 }),
+    output('mirror', { modelUsage: [{ ...pi, tokens24h: 150 }] })];
+  const history: ReconcilerHistory = {};
+  const snapshot = reconcileOutputs(reports, { ...options, history });
+  assert.deepEqual(snapshot.modelUsage, [pi, grok, gemini, codex]);
+  assert.equal(snapshot.summary.todayTokens, 174);
+  const updated = [...reports];
+  updated[2] = output('antigravity', { collectedAt: at(15_000), modelUsage: [{ ...gemini, todayTokens: 30, tokens24h: 130 }], todayTokens: 30 });
+  const next = reconcileOutputs(updated, { ...options, history, nowMs: now + 15_000 });
+  assert.equal(next.summary.todayTokens, 184);
+  assert.equal(next.tokenHistory.at(-1)?.tokensPerMin, 40);
+  const tomorrow = reconcileOutputs(updated, { ...options, history, nowMs: now + 86_400_000 });
+  assert.ok(tomorrow.modelUsage.every(entry => entry.todayTokens === 0));
+  assert.equal(tomorrow.summary.todayTokens, 0);
+});
+
+test('quota reconciliation uses measurement time and drops local placeholders once a measured window exists', () => {
+  const quota = (windowId: string, sourceMode: QuotaWindow['sourceMode'], usedPercent: number, age: number): QuotaWindow => ({
+    providerId: 'codex', providerName: 'Codex', windowId, label: windowId, usedPercent, sourceMode, checkedAt: at(age),
+  });
+  const local = { ...quota('local-safe', 'local-only', 0, 0), providerId: 'antigravity', unavailableReason: 'Local usage only' };
+  const snapshot = reconcileOutputs([
+    output('t3', { quotas: [quota('primary', 'official-cache', 1, -50), quota('secondary', 'official-cache', 10, -10), local] }),
+    output('codex', { collectedAt: at(-20), quotas: [quota('primary', 'passive-log', 25, -20), quota('secondary', 'passive-log', 50, -30)] }),
+    output('other', { quotas: [quota('primary', 'local-only', 0, 0), quota('local-safe', 'local-only', 0, 0),
+      { ...local, checkedAt: at(-100) }] }),
+  ], options);
+  assert.deepEqual(snapshot.quotas.map(q => [q.providerId, q.windowId, q.sourceMode, q.remainingPercent]), [
+    ['codex', 'secondary', 'official-cache', 90], ['codex', 'primary', 'passive-log', 75], ['antigravity', 'local-safe', 'local-only', undefined],
+  ]);
+  assert.equal(snapshot.quotas[2].unavailableReason, 'Local usage only');
 });
 
 test('summary includes tasks outside display limits and queue entries, while timeline and event lists stay bounded', () => {

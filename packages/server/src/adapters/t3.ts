@@ -1,9 +1,10 @@
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { AttentionAlert, EventEntry, QuotaWindow, SubagentNode, TaskItem, TaskStep, TokenMetrics } from '@orrery/shared';
+import type { AttentionAlert, EventEntry, SubagentNode, TaskItem, TaskStep, TokenMetrics } from '@orrery/shared';
 import type { OrreryConfig } from '../config.js';
 import type { CollectorAdapter } from './types.js';
+import { cachedQuotaWindows, dayMs, summarizeUsage, type UsageSample } from './usage.js';
 import {
   agentRuntime, brief, collectorOutput, normalizeWindowsPath, numberValue, parseJson, readJsonFile,
   readFields, readRows, record, stringValue, tableColumns, taskStatus, timestamp, tokenMetrics, withReadOnlyDb,
@@ -12,8 +13,8 @@ import {
 const projection = 'orchestration_v2_projection_';
 const liveStatuses = ['running', 'starting', 'preparing', 'waiting', 'waiting_approval', 'waiting_input', 'queued'];
 const isLive = (value: unknown) => liveStatuses.includes(String(value));
-const oneDay = 86_400_000;
 const weekdays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const usageProviderNames: Record<string, string> = { claudeAgent: 'Claude', deepseek: 'DeepSeek', grok: 'Grok', pi: 'Pi', opencode: 'OpenCode' };
 
 function readSteps(db: DatabaseSync, threadId: string, runId: string, fallbackTime: string, itemColumns: Set<string>): TaskStep[] {
   const nodeId = itemColumns.has('node_id') ? 'node_id' : 'NULL AS node_id';
@@ -52,25 +53,11 @@ function readSteps(db: DatabaseSync, threadId: string, runId: string, fallbackTi
   });
 }
 
-async function readQuotas(dir: string): Promise<QuotaWindow[]> {
+async function readQuotas(dir: string) {
   const names = await readdir(dir).catch(() => []);
   const files = await Promise.all(names.filter(name => name.endsWith('.json')).map(async name => {
     const cache = record(await readJsonFile(path.join(dir, name)));
-    const limits = record(cache.usageLimits);
-    if (!Array.isArray(limits.windows)) return [];
-    const providerId = stringValue(cache.instanceId) ?? path.basename(name, '.json');
-    const unavailable = record(limits.unavailable);
-    return limits.windows.flatMap(raw => {
-      const window = record(raw);
-      const id = stringValue(window.id) ?? stringValue(window.kind);
-      const used = numberValue(window.usedPercent);
-      return id && used !== undefined ? [{
-        providerId, providerName: stringValue(cache.displayName) ?? providerId, windowId: id,
-        label: stringValue(window.label) ?? id, usedPercent: Math.max(0, Math.min(100, used)),
-        resetsAt: timestamp(window.resetsAt), checkedAt: timestamp(limits.checkedAt ?? cache.checkedAt),
-        unavailableReason: brief(unavailable.message ?? unavailable.reason),
-      }] : [];
-    });
+    return cachedQuotaWindows(cache, path.basename(name, '.json'));
   }));
   return files.flat();
 }
@@ -82,50 +69,76 @@ export class T3Adapter implements CollectorAdapter {
   private lastSequence?: number;
   private usageRevision?: string;
   private usage = new Map<string, TokenMetrics>();
+  private modelSamples: UsageSample[] = [];
+  private modelSummary?: ReturnType<typeof summarizeUsage>;
 
   constructor(private readonly config: OrreryConfig) {
     this.intervalMs = config.pollIntervalMs;
   }
 
-  private async readUsage() {
+  private async readUsage(now: number) {
     const file = path.join(this.config.t3UserDataDir, 'usage-scan-cache-v17.json');
     const info = await stat(file).catch(() => undefined);
     if (!info) {
       this.usage.clear();
       this.usageRevision = undefined;
-      return;
+      this.modelSamples = [];
+      this.modelSummary = undefined;
+      return [];
     }
     const revision = `${info.mtimeMs}:${info.size}`;
-    if (revision === this.usageRevision) return;
+    if (this.modelSummary && now >= this.modelSummary.validUntil) this.modelSummary = summarizeUsage(this.modelSamples, now);
+    if (revision === this.usageRevision) return this.modelSummary?.entries ?? [];
     const cache = record(await readJsonFile(file));
-    if (cache.version !== 17 || !Array.isArray(cache.sessions)) return;
+    if (cache.version !== 17 || !Array.isArray(cache.sessions)) return this.modelSummary?.entries ?? [];
     const sessions: unknown[] = cache.sessions;
+    const models: unknown[] = Array.isArray(cache.models) ? cache.models : [];
     const usage = new Map<string, TokenMetrics>();
-    const seen = new Set<string>();
+    const samples: UsageSample[] = [];
+    const seenByProvider = new Map<string | undefined, Set<string>>();
     for (const raw of Object.values(record(cache.files))) {
       const entry = record(raw);
+      const providerId = entry.p === 'claude' ? 'claudeAgent' : stringValue(entry.p);
+      const seen = seenByProvider.get(providerId) ?? new Set<string>();
+      seenByProvider.set(providerId, seen);
+      const modelProvider = providerId && providerId !== 'codex' && providerId !== 'antigravity'
+        && (numberValue(entry.m) ?? now) >= now - dayMs ? providerId : undefined;
       for (const bucket of [entry.r, entry.t]) {
         if (!Array.isArray(bucket)) continue;
         for (const row of bucket) {
           if (!Array.isArray(row)) continue;
           // v17 interns session IDs and stores token deltas, including cached and cache-write input.
-          const [, , sessionIndex, uncached, cached, creation, output, reasoning, dedupeKey] = row;
+          const [time, modelIndex, sessionIndex, uncached, cached, creation, output, reasoning, dedupeKey] = row;
           const id = stringValue(sessions[sessionIndex]);
           if (!id || (typeof dedupeKey === 'string' && seen.has(dedupeKey))) continue;
           if (typeof dedupeKey === 'string') seen.add(dedupeKey);
           const totals = usage.get(id) ?? tokenMetrics();
-          const input = (numberValue(uncached) ?? 0) + (numberValue(cached) ?? 0) + (numberValue(creation) ?? 0);
-          totals.inputTokens += input;
-          totals.cachedInputTokens += numberValue(cached) ?? 0;
-          totals.outputTokens += numberValue(output) ?? 0;
+          const input = (numberValue(uncached) ?? 0) + (numberValue(creation) ?? 0);
+          const cacheRead = numberValue(cached) ?? 0;
+          const generated = numberValue(output) ?? 0;
+          const total = input + cacheRead + generated;
+          totals.inputTokens += input + cacheRead;
+          totals.cachedInputTokens += cacheRead;
+          totals.outputTokens += generated;
           totals.reasoningTokens += numberValue(reasoning) ?? 0;
-          totals.totalTokens += input + (numberValue(output) ?? 0);
+          totals.totalTokens += total;
           usage.set(id, totals);
+          if (modelProvider) {
+            const at = numberValue(time);
+            const model = stringValue(models[modelIndex]);
+            if (at !== undefined && at >= now - dayMs && model) samples.push({
+              providerId: modelProvider, providerName: usageProviderNames[modelProvider] ?? modelProvider,
+              model, sessionId: id, at, input, cached: cacheRead, output: generated, total,
+            });
+          }
         }
       }
     }
     this.usage = usage;
     this.usageRevision = revision;
+    this.modelSamples = samples;
+    this.modelSummary = summarizeUsage(samples, now);
+    return this.modelSummary.entries;
   }
 
   async collect() {
@@ -133,14 +146,15 @@ export class T3Adapter implements CollectorAdapter {
     const at = new Date(now).toISOString();
     const result = collectorOutput(this.id, at);
     result.timeline = [];
-    const [metadata, quotas] = await Promise.all([
+    const [metadata, quotas, modelUsage] = await Promise.all([
       readJsonFile(path.join(this.config.t3UserDataDir, 'server-runtime.json')),
-      readQuotas(this.config.t3CachesDir), this.readUsage(),
+      readQuotas(this.config.t3CachesDir), this.readUsage(now),
     ]);
     result.quotas = quotas;
+    result.modelUsage = modelUsage;
     const hours = numberValue(this.config.recentWindowHours) ?? 24;
     const windowStart = now - Math.max(0, hours) * 3_600_000;
-    const cutoff = new Date(Math.min(windowStart, now - oneDay)).toISOString();
+    const cutoff = new Date(Math.min(windowStart, now - dayMs)).toISOString();
     const available = withReadOnlyDb(path.join(this.config.t3UserDataDir, 'statev2.sqlite'), db => {
       const projects = new Map(readRows(db, 'SELECT project_id, title, workspace_root FROM projection_projects')
         .map(row => [row.project_id, row]));
@@ -268,7 +282,7 @@ export class T3Adapter implements CollectorAdapter {
         const start = timestamp(record(parseJson(run.payload_json)).startedAt ?? run.requested_at);
         const active = isLive(run.status);
         const end = timestamp(run.completed_at) ?? (active ? at : start);
-        if (!start || !end || Date.parse(end) < now - oneDay) return [];
+        if (!start || !end || Date.parse(end) < now - dayMs) return [];
         return [{ id: `t3:run:${run.run_id}`, taskId: `t3:${run.thread_id}`, label: brief(thread.title) ?? 'T3 thread',
           project: stringValue(projects.get(thread.project_id)?.title), source: 't3' as const, provider: stringValue(run.provider) ?? 't3',
           status: task?.externalIds.t3RunId === run.run_id ? task.status : taskStatus(run.status), startedAt: start, endedAt: end, isActive: active }];

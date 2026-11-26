@@ -11,7 +11,7 @@ const execute = promisify(execFile);
 const processQuery = String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$filter = "Name LIKE 'T3 Code%.exe' OR Name='t3code.exe' OR Name='t3-resource-monitor.exe' OR Name='codex.exe' OR Name='ChatGPT.exe' OR Name='codex-code-mode-host.exe' OR Name='codex-computer-use-swift.exe' OR Name='claude.exe' OR Name='opencode.exe' OR Name='node.exe'"
+$filter = "Name LIKE 'T3 Code%.exe' OR Name='t3code.exe' OR Name='t3-resource-monitor.exe' OR Name='codex.exe' OR Name='ChatGPT.exe' OR Name='codex-code-mode-host.exe' OR Name='codex-computer-use-swift.exe' OR Name='claude.exe' OR Name='opencode.exe' OR Name='agy.exe' OR Name LIKE 'antigravity%.exe' OR Name LIKE 'language[_]server%.exe' OR Name='node.exe'"
 $rows = @(Get-CimInstance -ClassName Win32_Process -Filter $filter -Property Name,ProcessId,ParentProcessId,WorkingSetSize,KernelModeTime,UserModeTime,CommandLine,CreationDate | ForEach-Object {
   if ($_.Name -ne 'node.exe' -or $_.CommandLine -match '@openai[\\/]codex|@anthropic-ai[\\/]claude-code|[\\/]opencode-ai[\\/]') {
     [pscustomobject]@{
@@ -64,9 +64,11 @@ export class ProcessAdapter implements CollectorAdapter {
         const command = stringValue(row.command);
         const node = image === 'node';
         const agentId = /^t3/.test(image) ? 't3'
+          : image === 'agy' || /^(antigravity|language_server)/.test(image) ? 'antigravity'
           : image === 'claude' || (node && /@anthropic-ai[\\/]claude-code/i.test(command ?? '')) ? 'claude-code'
           : image === 'opencode' || (node && /[\\/]opencode-ai[\\/]/i.test(command ?? '')) ? 'opencode' : 'codex';
         const role = image === 't3-resource-monitor' ? 'resource monitor'
+          : image.startsWith('language_server') ? 'language server'
           : image === 'codex-code-mode-host' ? 'code mode host' : image === 'codex-computer-use-swift' ? 'computer use'
           : command?.match(/--type[= ]"?([\w-]+)/)?.[1] ?? (/\bapp-server\b/.test(command ?? '') ? 'app server'
             : image === 'chatgpt' || /^t3/.test(image) ? 'desktop' : 'CLI');

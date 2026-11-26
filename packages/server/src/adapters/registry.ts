@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ProcessMetric, TaskItem } from '@orrery/shared';
 import type { OrreryConfig } from '../config.js';
+import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
 import { ProcessAdapter } from './process.js';
 import {
@@ -12,7 +13,7 @@ import {
 import { T3Adapter } from './t3.js';
 import type { CollectorAdapter } from './types.js';
 
-export { T3Adapter, CodexAdapter, ProcessAdapter };
+export { T3Adapter, CodexAdapter, AntigravityAdapter, ProcessAdapter };
 
 type Session = { id: string; title?: string; cwd?: string; start?: string; updated: string; pid?: number; model?: string };
 type ProcessReader = () => Promise<ProcessMetric[]>;
@@ -182,6 +183,6 @@ export class OpenCodeDetectorAdapter extends SessionDetector {
 export function createDefaultAdapters(config: OrreryConfig): CollectorAdapter[] {
   const processes = new ProcessAdapter(config);
   const sample = () => processes.sampleProcesses();
-  return [new T3Adapter(config), new CodexAdapter(config), processes,
+  return [new T3Adapter(config), new CodexAdapter(config), new AntigravityAdapter(config), processes,
     new ClaudeCodeDetectorAdapter(config, undefined, sample), new OpenCodeDetectorAdapter(config, undefined, sample)];
 }

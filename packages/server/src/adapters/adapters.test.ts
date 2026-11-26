@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { test, type TestContext } from 'node:test';
 import { loadConfig } from '../config.js';
-import { ClaudeCodeDetectorAdapter, CodexAdapter, createDefaultAdapters, OpenCodeDetectorAdapter, ProcessAdapter, T3Adapter } from './registry.js';
+import { AntigravityAdapter, ClaudeCodeDetectorAdapter, CodexAdapter, createDefaultAdapters, OpenCodeDetectorAdapter, ProcessAdapter, T3Adapter } from './registry.js';
 import { normalizeWindowsPath, withReadOnlyDb } from './sqlite.js';
 import type { CollectorOutput } from './types.js';
 
@@ -84,7 +84,7 @@ test('absent data and malformed projections leave independent collectors usable'
   const { dir, config } = fixture(t);
   const detectors = [new ClaudeCodeDetectorAdapter(config, path.join(dir, 'absent-claude')),
     new OpenCodeDetectorAdapter(config, path.join(dir, 'absent-opencode'))];
-  for (const adapter of [new T3Adapter(config), new CodexAdapter(config), ...detectors]) {
+  for (const adapter of [new T3Adapter(config), new CodexAdapter(config), new AntigravityAdapter(config, path.join(dir, 'missing-brain')), ...detectors]) {
     const out = await adapter.collect();
     checkOutput(out);
     assert.equal(out.agents[0]?.status, 'offline');
@@ -330,6 +330,170 @@ test('Codex joins active turns, projects, spawn edges and schedules, then tails 
   adapter.dispose();
 });
 
+test('Antigravity reads recent planner responses from both roots and defers to cached quotas', async t => {
+  const { dir, config } = fixture(t);
+  const now = new Date(2026, 6, 5, 0, 5).getTime();
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const at = (offset: number) => new Date(now + offset).toISOString();
+  const homeBrain = path.join(dir, 'home-brain');
+  const acpBrain = path.join(config.t3UserDataDir, 'providers', 'antigravity', 'instance', 'antigravity-acp', 'brain');
+  const step = { type: 'PLANNER_RESPONSE', model: 'gemini-4-test', input_tokens: 10, cache_read_tokens: 6, output_tokens: 4 };
+  const writeTranscript = (root: string, session: string, modified: number, steps: unknown[]) => {
+    const file = path.join(root, session, '.system_generated', 'logs', 'transcript.jsonl');
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, [...steps.map(row => JSON.stringify(row)), '{incomplete'].join('\n'));
+    utimesSync(file, modified / 1000, modified / 1000);
+    return file;
+  };
+  writeTranscript(homeBrain, 'a', now - 2000, [
+    { ...step, created_at: at(-6 * 60_000) }, { ...step, created_at: at(-86_400_001) },
+    { ...step, type: 'USER_INPUT', text: 'PLANNER_RESPONSE' },
+  ]);
+  writeTranscript(acpBrain, 'a', now - 3000, [{ ...step, created_at: at(-6 * 60_000) },
+    { ...step, step_index: 42, created_at: at(-4 * 60_000) }]);
+  const changed = writeTranscript(acpBrain, 'b', now - 1000, [step]);
+  writeTranscript(homeBrain, 'old-file', now - 2 * 86_400_000, [{ ...step, created_at: at(0) }]);
+  const adapter = new AntigravityAdapter(config, homeBrain);
+  const first = await adapter.collect();
+  assert.equal(adapter.intervalMs, 5000);
+  assert.deepEqual(first.modelUsage, [{ providerId: 'antigravity', providerName: 'Antigravity', model: step.model,
+    todayTokens: 40, tokens24h: 60, inputTokens24h: 30, cachedTokens24h: 18, outputTokens24h: 12,
+    calls24h: 3, sessions24h: 2, lastUsedAt: at(-1000) }]);
+  assert.equal(first.todayTokens, 40);
+  assert.equal(first.agents[0].status, 'online');
+  assert.match(first.agents[0].detail!, /passive local/i);
+  assert.deepEqual(first.quotas, [{ providerId: 'antigravity', providerName: 'Antigravity', windowId: 'local-safe',
+    label: '本地安全用量统计', usedPercent: 0, sourceMode: 'local-only', unavailableReason: '官方未落盘剩余额度；已禁用上游探针保护账号安全' }]);
+  assert.equal((await adapter.collect()).modelUsage, first.modelUsage);
+  appendFileSync(changed, '\n' + JSON.stringify({ ...step, created_at: at(0) }));
+  utimesSync(changed, (now - 1000) / 1000, (now - 1000) / 1000);
+  const appended = await adapter.collect();
+  assert.deepEqual([appended.todayTokens, appended.modelUsage?.[0].calls24h, appended.modelUsage?.[0].sessions24h], [60, 4, 2]);
+  t.mock.timers.tick(11 * 60_000);
+  assert.equal((await adapter.collect()).agents[0].status, 'offline');
+  const cacheFile = path.join(config.t3CachesDir, 'antigravity.json');
+  writeJson(cacheFile, { enabled: true, status: 'ready', usageLimits: { windows: [], unavailable: { reason: 'unsupported' } } });
+  assert.deepEqual((await adapter.collect()).quotas, first.quotas);
+  writeJson(cacheFile, { enabled: true, status: 'ready',
+    usageLimits: { windows: [{ id: 'primary', usedPercent: 40 }] } });
+  const ready = await adapter.collect();
+  assert.equal(ready.agents[0].status, 'online');
+  assert.deepEqual(ready.quotas, []);
+  t.mock.timers.tick(86_400_000);
+  assert.deepEqual((await adapter.collect()).modelUsage, []);
+});
+
+test('T3 v17 resolves interned models, expires dated deltas on an unchanged revision, and exposes unavailable caches', async t => {
+  const { config } = fixture(t);
+  const now = new Date(2026, 6, 5, 23, 59, 59).getTime(), day = 86_400_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const row = (at: number, model: number, session: number, key: string) => [at, model, session, 10, 5, 3, 6, 1, key];
+  const recent = row(now, 0, 0, 'latest');
+  const file = path.join(config.t3UserDataDir, 'usage-scan-cache-v17.json');
+  const cache = { version: 17, sessions: ['one', 'two'], models: ['deepseek-test', 'grok-test', 'pi-test'], files: {
+    a: { p: 'claude', m: now, r: [recent, row(now - day + 500, 0, 1, 'edge'), row(now - day - 1, 0, 1, 'expired')], t: [recent] },
+    b: { p: 'grok', m: now, t: [row(now - 1000, 1, 1, 'latest')] },
+    c: { p: 'pi', m: now - day - 1, r: [row(now, 2, 0, 'stale-file')] },
+    d: { p: 'antigravity', m: now, r: [row(now, 0, 0, 'direct-a')] },
+    e: { p: 'codex', m: now, r: [row(now, 0, 0, 'direct-c')] },
+  } };
+  writeJson(file, cache);
+  writeJson(path.join(config.t3CachesDir, 'antigravity.json'), { enabled: true, displayName: 'Antigravity',
+    usageLimits: { windows: [], unavailable: { reason: 'unsupported', message: 'No quota persisted' } } });
+  writeJson(path.join(config.t3CachesDir, 'pi.json'), { enabled: false, usageLimits: { windows: [], unavailable: { reason: 'disabled' } } });
+  writeJson(path.join(config.t3CachesDir, 'grok.json'), { usageLimits: { checkedAt: now,
+    windows: [{ id: 'primary', windowDurationMins: 300, usedPercent: 24.5 }] } });
+  const adapter = new T3Adapter(config);
+  const out = await adapter.collect();
+  assert.deepEqual(out.modelUsage?.map(entry => entry.model), ['deepseek-test', 'grok-test']);
+  assert.deepEqual(out.modelUsage?.[0], { providerId: 'claudeAgent', providerName: 'Claude', model: 'deepseek-test', todayTokens: 24,
+    tokens24h: 48, inputTokens24h: 26, cachedTokens24h: 10, outputTokens24h: 12, calls24h: 2, sessions24h: 2,
+    lastUsedAt: new Date(now).toISOString() });
+  assert.equal((await adapter.collect()).modelUsage, out.modelUsage);
+  const measured = out.quotas.find(q => q.providerId === 'grok')!;
+  assert.deepEqual([measured.remainingPercent, measured.windowDurationMins, measured.sourceMode], [75.5, 300, 'official-cache']);
+  const local = out.quotas.find(q => q.providerId === 'antigravity')!;
+  assert.deepEqual([local.sourceMode, local.remainingPercent, local.unavailableReason], ['local-only', undefined, 'No quota persisted']);
+  assert.equal(out.quotas.length, 2);
+  t.mock.timers.tick(1000);
+  const next = await adapter.collect();
+  assert.deepEqual(next.modelUsage?.map(entry => [entry.todayTokens, entry.tokens24h, entry.calls24h]), [[0, 24, 1], [0, 24, 1]]);
+  cache.files.c.m = now + 1000;
+  writeJson(file, cache);
+  assert.ok((await adapter.collect()).modelUsage?.some(entry => entry.providerId === 'pi' && entry.tokens24h === 24));
+});
+
+test('Codex partitions cumulative usage across models and midnight and uses the latest timestamped quota event', async t => {
+  const { config, dir } = fixture(t);
+  const now = new Date(2026, 6, 5, 12).getTime(), hour = 3_600_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const at = (hours: number) => new Date(now + hours * hour).toISOString();
+  const event = (hours: number, type: string, payload: unknown) => JSON.stringify({ timestamp: at(hours), type, payload }) + '\n';
+  const count = (hours: number, input: number, cached: number, output: number) => event(hours, 'event_msg', { type: 'token_count',
+    info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output, total_tokens: input + output } } });
+  const reset = (now + 500_000) / 1000;
+  const quota = (hours: number, used: number, secondary: number | null) => event(hours, 'event_msg', { type: 'token_count', info: null,
+    rate_limits: { plan_type: 'pro', primary: { used_percent: used, window_minutes: 300, resets_at: reset },
+      secondary: secondary === null ? null : { used_percent: secondary, window_minutes: 10_080, resets_at: reset } } });
+  const file = path.join(dir, 'long-session.jsonl'), otherFile = path.join(dir, 'other-session.jsonl');
+  writeFileSync(file, event(-26, 'turn_context', { model: 'gpt-first' }) +
+    count(-25, 1000, 500, 100) + count(-13, 1050, 520, 110) + count(-10, 1050, 520, 110) +
+    event(-2, 'turn_context', { model: 'gpt-second' }) + count(-2, 1150, 550, 130) + quota(-1, 37.5, 90));
+  writeFileSync(otherFile, quota(-3, 1, null));
+  database(path.join(config.codexDir, 'state_5.sqlite'), `CREATE TABLE threads
+    (id TEXT, created_at_ms INTEGER, updated_at_ms INTEGER, model TEXT, rollout_path TEXT, tokens_used INTEGER)`, db => {
+    insert(db, 'threads', { id: 'long', model: 'gpt-second', created_at_ms: now - 30 * hour, updated_at_ms: now - hour,
+      rollout_path: file, tokens_used: 1280 });
+    insert(db, 'threads', { id: 'today', model: 'gpt-second', created_at_ms: now - 4 * hour, updated_at_ms: now,
+      rollout_path: otherFile, tokens_used: 42 });
+    insert(db, 'threads', { id: 'old', model: 'old-model', created_at_ms: now - 50 * hour, updated_at_ms: now - 30 * hour, tokens_used: 9999 });
+  });
+  const adapter = new CodexAdapter(config);
+  const out = await adapter.collect();
+  const first = out.modelUsage?.find(entry => entry.model === 'gpt-first'), second = out.modelUsage?.find(entry => entry.model === 'gpt-second');
+  assert.deepEqual(first, { providerId: 'codex', providerName: 'Codex', model: 'gpt-first', todayTokens: 0, tokens24h: 60,
+    inputTokens24h: 30, cachedTokens24h: 20, outputTokens24h: 10, calls24h: 1, sessions24h: 1, lastUsedAt: at(-13), quotaWindowId: 'primary' });
+  assert.deepEqual(second, { providerId: 'codex', providerName: 'Codex', model: 'gpt-second', todayTokens: 162, tokens24h: 162,
+    inputTokens24h: 70, cachedTokens24h: 30, outputTokens24h: 20, calls24h: 1, sessions24h: 2, lastUsedAt: at(0), quotaWindowId: 'primary' });
+  assert.equal(out.modelUsage?.length, 2);
+  assert.equal(out.todayTokens, 162);
+  assert.deepEqual(out.quotas.map(q => [q.windowId, q.usedPercent, q.remainingPercent, q.windowDurationMins, q.planType,
+    q.checkedAt, q.resetsAt, q.sourceMode]), [
+    ['primary', 37.5, 62.5, 300, 'pro', at(-1), new Date(reset * 1000).toISOString(), 'passive-log'],
+    ['secondary', 90, 10, 10080, 'pro', at(-1), new Date(reset * 1000).toISOString(), 'passive-log'],
+  ]);
+  appendFileSync(file, quota(0, 101, null));
+  const next = await adapter.collect();
+  assert.deepEqual(next.modelUsage, out.modelUsage);
+  assert.deepEqual(next.quotas.map(q => [q.windowId, q.remainingPercent]), [['primary', 0]]);
+});
+
+test('Codex reads quotas before the thread index exists and applies model metadata that arrives later', async t => {
+  const { config } = fixture(t);
+  const now = Date.now(), time = new Date(now).toISOString();
+  const dir = path.join(config.codexDir, 'sessions', '2026', '07', '05');
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'rollout-new.jsonl'), old = path.join(dir, 'rollout-old.jsonl');
+  const count = (used: number) => JSON.stringify({ type: 'event_msg', timestamp: time, payload: { type: 'token_count',
+    info: { total_token_usage: { input_tokens: 30, cached_input_tokens: 20, output_tokens: 5 } },
+    rate_limits: { primary: { used_percent: used } } } }) + '\n';
+  writeFileSync(old, count(99));
+  utimesSync(old, now / 1000 - 60, now / 1000 - 60);
+  writeFileSync(file, count(15));
+  const adapter = new CodexAdapter(config);
+  const first = await adapter.collect();
+  assert.deepEqual(first.quotas.map(q => [q.remainingPercent, q.sourceMode]), [[85, 'passive-log']]);
+  assert.deepEqual(first.tasks, []);
+  const dbFile = path.join(config.codexDir, 'state_5.sqlite');
+  database(dbFile, 'CREATE TABLE threads (id TEXT, model TEXT, created_at_ms INTEGER, updated_at_ms INTEGER, rollout_path TEXT)',
+    db => insert(db, 'threads', { id: 'new', created_at_ms: now, updated_at_ms: now, rollout_path: file }));
+  assert.deepEqual((await adapter.collect()).modelUsage, []);
+  database(dbFile, "UPDATE threads SET model = 'gpt-late'");
+  const bound = await adapter.collect();
+  assert.deepEqual(bound.modelUsage?.map(entry => [entry.model, entry.tokens24h, entry.calls24h]), [['gpt-late', 35, 1]]);
+  assert.equal(bound.todayTokens, 35);
+});
+
 test('detectors return recent local sessions and can use the shared process sample', async t => {
   const { dir, config } = fixture(t);
   const now = Date.now();
@@ -356,10 +520,10 @@ test('detectors return recent local sessions and can use the shared process samp
   assert.deepEqual(b.tasks.map(task => task.title).sort(), ['Legacy session','SQLite session']);
 });
 
-test('default registry exposes all five distinct adapters in collection order', () => {
+test('default registry exposes all six distinct adapters in collection order', () => {
   const adapters = createDefaultAdapters(loadConfig());
-  assert.deepEqual(adapters.map(adapter => adapter.id), ['t3','codex','process','claude-code','opencode']);
-  assert.deepEqual(adapters.map(adapter => adapter.constructor), [T3Adapter, CodexAdapter, ProcessAdapter, ClaudeCodeDetectorAdapter, OpenCodeDetectorAdapter]);
+  assert.deepEqual(adapters.map(adapter => adapter.id), ['t3','codex','antigravity','process','claude-code','opencode']);
+  assert.deepEqual(adapters.map(adapter => adapter.constructor), [T3Adapter, CodexAdapter, AntigravityAdapter, ProcessAdapter, ClaudeCodeDetectorAdapter, OpenCodeDetectorAdapter]);
   assert.ok(adapters.every(adapter => adapter.intervalMs > 0 && typeof adapter.collect === 'function'));
 });
 

@@ -1,15 +1,15 @@
-import { open } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { EventEntry, ScheduledItem, SourceKind, TaskItem, TaskStatus, TaskStep, TokenMetrics } from '@orrery/shared';
+import type { EventEntry, QuotaWindow, ScheduledItem, SourceKind, TaskItem, TaskStatus, TaskStep, TokenMetrics } from '@orrery/shared';
 import type { OrreryConfig } from '../config.js';
 import type { CollectorAdapter, CollectorOutput } from './types.js';
+import { dayMs, summarizeUsage, type UsageSample } from './usage.js';
 import {
   agentRuntime, brief, collectorOutput, normalizeWindowsPath, numberValue, parseJson, readFields, readRows,
   record, stringValue, tableColumns, taskStatus, timestamp, tokenMetrics, withReadOnlyDb,
 } from './sqlite.js';
 
 const halfHour = 30 * 60_000;
-const day = 86_400_000;
 const labels = { 'codex-cli': 'Codex CLI', 'codex-app': 'Codex App', 't3-codex': 'T3 → Codex' };
 
 function sourceOf(originator: unknown, source: unknown): keyof typeof labels {
@@ -20,11 +20,15 @@ function sourceOf(originator: unknown, source: unknown): keyof typeof labels {
 }
 
 type Rollout = {
+  taskId: string;
   ino: number;
   offset: number;
   lineStart: number;
   fragments: Buffer[];
   steps: TaskStep[];
+  samples: (Pick<UsageSample, 'at' | 'input' | 'cached' | 'output' | 'total'> & { model?: string })[];
+  quotas: QuotaWindow[];
+  followed: boolean;
   mtimeMs: number;
   updatedAt?: string;
   startedAt?: string;
@@ -54,6 +58,17 @@ function consumeLine(tail: Rollout, line: Buffer, taskId: string, source: Source
   } else if (envelope.type === 'event_msg') {
     switch (data.type) {
       case 'token_count': {
+        const limits = record(data.rate_limits);
+        const quotas = (['primary', 'secondary'] as const).flatMap((windowId): QuotaWindow[] => {
+          const window = record(limits[windowId]);
+          const used = numberValue(window.used_percent);
+          if (used === undefined) return [];
+          const usedPercent = Math.max(0, Math.min(100, used));
+          return [{ providerId: 'codex', providerName: 'Codex', windowId, label: windowId === 'primary' ? 'Primary' : 'Secondary',
+            usedPercent, remainingPercent: 100 - usedPercent, windowDurationMins: numberValue(window.window_minutes),
+            planType: stringValue(limits.plan_type), resetsAt: timestamp(window.resets_at), checkedAt: time, sourceMode: 'passive-log' }];
+        });
+        if (quotas.length && time >= (tail.quotas[0]?.checkedAt ?? '')) tail.quotas = quotas;
         const info = record(data.info);
         const total = record(info.total_token_usage);
         if (!Object.keys(total).length) return;
@@ -63,9 +78,21 @@ function consumeLine(tail: Rollout, line: Buffer, taskId: string, source: Source
         const window = numberValue(info.model_context_window) ?? tail.contextWindow;
         const used = numberValue(last.total_tokens) ?? numberValue(last.input_tokens);
         tail.contextWindow = window;
+        const totalTokens = numberValue(total.total_tokens) ?? input + output;
+        const cachedInputTokens = numberValue(total.cached_input_tokens) ?? 0;
+        const previous = tail.tokens && tail.tokens.totalTokens <= totalTokens ? tail.tokens : undefined;
+        const delta = totalTokens - (previous?.totalTokens ?? 0);
+        const at = Date.parse(time);
+        if (delta > 0 && at >= now - dayMs) {
+          const cached = Math.max(0, cachedInputTokens - (previous?.cachedInputTokens ?? 0));
+          // Codex includes cache reads in input_tokens. Keep the model breakdown additive.
+          tail.samples.push({ model: tail.model, at,
+            input: Math.max(0, input - (previous?.inputTokens ?? 0) - cached), cached,
+            output: Math.max(0, output - (previous?.outputTokens ?? 0)), total: delta });
+        }
         tail.tokens = {
-          inputTokens: input, cachedInputTokens: numberValue(total.cached_input_tokens) ?? 0, outputTokens: output,
-          reasoningTokens: numberValue(total.reasoning_output_tokens) ?? 0, totalTokens: numberValue(total.total_tokens) ?? input + output,
+          inputTokens: input, cachedInputTokens, outputTokens: output,
+          reasoningTokens: numberValue(total.reasoning_output_tokens) ?? 0, totalTokens,
           contextWindow: window, contextPercent: window && window > 0 && used !== undefined ? Math.min(100, Math.max(0, used / window * 100)) : undefined,
         };
         summary = 'Token usage updated';
@@ -137,7 +164,7 @@ export class CodexAdapter implements CollectorAdapter {
     this.intervalMs = config.pollIntervalMs;
   }
 
-  private async tailFile(file: string, taskId: string, source: SourceKind, title: string, now: number) {
+  private async tailFile(file: string, taskId: string, source: SourceKind, title: string, now: number, follow: boolean) {
     const events: EventEntry[] = [];
     const handle = await open(file, 'r').catch(() => undefined);
     if (!handle) return events;
@@ -145,11 +172,13 @@ export class CodexAdapter implements CollectorAdapter {
       const info = await handle.stat();
       if (!info.isFile()) return events;
       let tail = this.tails.get(file);
-      if (!tail || tail.ino !== info.ino || info.size < tail.offset) {
-        tail = { ino: info.ino, offset: 0, lineStart: 0, fragments: [], steps: [], mtimeMs: info.mtimeMs };
+      if (!tail || tail.taskId !== taskId || tail.ino !== info.ino || info.size < tail.offset) {
+        tail = { taskId, ino: info.ino, offset: 0, lineStart: 0, fragments: [], steps: [], mtimeMs: info.mtimeMs,
+          followed: false, samples: [], quotas: [] };
         this.tails.set(file, tail);
       }
       tail.mtimeMs = info.mtimeMs;
+      tail.followed ||= follow;
       while (tail.offset < info.size) {
         const length = Math.min(128 * 1024, info.size - tail.offset);
         const { bytesRead, buffer } = await handle.read(Buffer.allocUnsafe(length), 0, length, tail.offset);
@@ -227,8 +256,10 @@ export class CodexAdapter implements CollectorAdapter {
       const updated = columns.has('updated_at_ms') && columns.has('updated_at') ? 'COALESCE(updated_at_ms, updated_at * 1000)'
         : columns.has('updated_at_ms') ? 'updated_at_ms' : columns.has('updated_at') ? 'updated_at * 1000' : '0.0';
       const order = `${updated} DESC, id DESC`;
-      const recent = readRows(db, `SELECT ${fields} FROM threads WHERE ${updated} >= ? ORDER BY ${order}`, Math.min(now - day, midnight));
+      const recent = readRows(db, `SELECT ${fields} FROM threads WHERE ${updated} >= ? ORDER BY ${order}`, Math.min(now - dayMs, midnight));
       const open = readRows(db, `SELECT ${fields} FROM threads ${columns.has('archived') ? 'WHERE archived = 0' : ''} ORDER BY ${order} LIMIT 80`);
+      const latest = columns.has('rollout_path') && !recent.some(row => stringValue(row.rollout_path)?.endsWith('.jsonl'))
+        ? readRows(db, `SELECT id, rollout_path FROM threads WHERE rollout_path LIKE '%.jsonl' ORDER BY ${order} LIMIT 1`)[0] : undefined;
       const byId = new Map([...recent, ...open].map(row => [String(row.id), row]));
       const loadIds = (ids: string[]) => {
         const missing = [...new Set(ids)].filter(id => !byId.has(id));
@@ -245,10 +276,11 @@ export class CodexAdapter implements CollectorAdapter {
         const root = normalizeWindowsPath(stringValue(row.path));
         return root ? [{ root, project: projects.get(row.project_id) }] : [];
       }).sort((a, b) => b.root.length - a.root.length);
-      return { threads, edges, byId, projects, roots };
+      return { threads, edges, byId, projects, roots, latest };
     });
 
     const paths = new Set<string>();
+    const samples: UsageSample[] = [];
     const tasks = new Map<string, TaskItem>();
     let latestVersion: string | undefined;
     let lastSeen: string | undefined;
@@ -265,14 +297,22 @@ export class CodexAdapter implements CollectorAdapter {
       const updated = timestamp(row.updated_at_ms ?? row.updated_at) ?? created;
       const file = normalizeWindowsPath(stringValue(row.rollout_path));
       const activeTurn = active.has(id);
-      let tail: Rollout | undefined;
-      if (file) {
+      const threadModel = stringValue(row.model);
+      const recent = updated !== undefined && Date.parse(updated) >= now - dayMs;
+      let rollout: Rollout | undefined;
+      if (file && !file.endsWith('.zst')) {
         paths.add(file);
-        if (activeTurn || (updated && Date.parse(updated) >= now - halfHour)) {
-          result.events.push(...await this.tailFile(file, taskId, source, title, now));
+        const follow = activeTurn || (updated !== undefined && Date.parse(updated) >= now - halfHour);
+        if (follow || recent) {
+          const events = await this.tailFile(file, taskId, source, title, now, follow);
+          if (follow) result.events.push(...events);
         }
-        tail = this.tails.get(file);
+        rollout = this.tails.get(file);
+        if (rollout?.quotas.length && rollout.quotas[0].checkedAt! > (result.quotas[0]?.checkedAt ?? '')) {
+          result.quotas = rollout.quotas;
+        }
       }
+      const tail = rollout?.followed ? rollout : undefined;
       const start = tail?.startedAt ?? created ?? updated ?? at;
       const update = [updated, tail?.updatedAt, active.get(id)].filter((v): v is string => !!v).sort().at(-1) ?? start;
       const status: TaskStatus = activeTurn ? 'running' : tail?.status === 'running' && (tail.mtimeMs < now - halfHour || row.archived)
@@ -290,7 +330,7 @@ export class CodexAdapter implements CollectorAdapter {
       const currentSteps = status === 'running' ? steps.filter(step => step.startedAt >= start) : steps;
       const task: TaskItem = {
         id: taskId, externalIds: { codexThreadId: id, rolloutPath: file }, source, sourceLabel: labels[source], title,
-        status, provider: 'codex', model: tail?.model ?? stringValue(row.model), reasoningEffort: tail?.effort ?? stringValue(row.reasoning_effort),
+        status, provider: 'codex', model: tail?.model ?? threadModel, reasoningEffort: tail?.effort ?? stringValue(row.reasoning_effort),
         project: state?.projects.get(row.project_id) ?? (root ? root.project : undefined), cwd, gitBranch: stringValue(row.git_branch),
         startedAt: start, updatedAt: update, completedAt: end, durationMs: Math.max(0, Date.parse(end ?? at) - Date.parse(start)),
         currentStep: (currentSteps.find(step => step.status === 'running') ?? currentSteps[0])?.label ?? (status === 'running' ? 'Turn in progress' : undefined),
@@ -298,14 +338,51 @@ export class CodexAdapter implements CollectorAdapter {
         subagents: [], pendingInputs: 0, pendingApprovals: 0, hasActionablePlan: false, isStale: status === 'stale',
       };
       tasks.set(id, task);
-      if (created && Date.parse(created) >= midnight) result.todayTokens += tokens.totalTokens;
-      if (status === 'running' || Date.parse(update) >= now - day) result.timeline.push({
+      const model = rollout?.model ?? threadModel;
+      if (recent || activeTurn) {
+        if (rollout) {
+          rollout.samples = rollout.samples.filter(sample => sample.at >= now - dayMs);
+          for (const sample of rollout.samples) {
+            const sampledModel = sample.model ?? threadModel ?? rollout.model;
+            if (sampledModel) samples.push({ ...sample, model: sampledModel, providerId: this.id, providerName: this.name, sessionId: taskId });
+          }
+        }
+        // Account for a missing or lagging rollout without charging a lifetime total across midnight.
+        const unlogged = (numberValue(row.tokens_used) ?? 0) - (rollout?.tokens?.totalTokens ?? 0);
+        if (model && unlogged > 0) samples.push({ providerId: this.id, providerName: this.name, model, sessionId: taskId,
+          at: Date.parse(update), counterStartedAt: Date.parse(created ?? update),
+          input: 0, cached: 0, output: 0, total: unlogged, calls: 0 });
+      }
+      if (!model && created && Date.parse(created) >= midnight) result.todayTokens += tokens.totalTokens;
+      if (status === 'running' || Date.parse(update) >= now - dayMs) result.timeline.push({
         id: `${taskId}:timeline`, taskId, source, provider: task.provider, label: title, project: task.project, status,
         startedAt: start, endedAt: end ?? at, isActive: status === 'running',
       });
       if (!lastSeen || update >= lastSeen) {
         lastSeen = update;
         latestVersion = stringValue(row.cli_version) ?? latestVersion;
+      }
+    }
+    result.modelUsage = summarizeUsage(samples, now).entries.map(entry => ({ ...entry, quotaWindowId: 'primary' }));
+    result.todayTokens += result.modelUsage.reduce((sum, entry) => sum + entry.todayTokens, 0);
+    // A rollout can exist before the SQLite index or after its thread has been archived.
+    if (state?.latest || ![...paths].some(file => this.tails.has(file))) {
+      let file = normalizeWindowsPath(stringValue(state?.latest?.rollout_path));
+      if (!file || !(await stat(file).catch(() => undefined))?.isFile()) {
+        const directory = path.join(this.config.codexDir, 'sessions');
+        const files = await readdir(directory, { recursive: true, withFileTypes: true }).catch(() => []);
+        const candidates = await Promise.all(files.filter(entry => entry.isFile() && /^rollout-.*\.jsonl$/i.test(entry.name)).map(async entry => {
+          const file = path.join(entry.parentPath, entry.name);
+          const info = await stat(file).catch(() => undefined);
+          return { file, mtimeMs: info?.mtimeMs ?? 0 };
+        }));
+        file = candidates.sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.file;
+      }
+      if (file) {
+        paths.add(file);
+        await this.tailFile(file, `codex:${state?.latest?.id ?? path.basename(file)}`, 'codex-cli', '', now, false);
+        const quotas = this.tails.get(file)?.quotas;
+        if (quotas?.length && quotas[0].checkedAt! > (result.quotas[0]?.checkedAt ?? '')) result.quotas = quotas;
       }
     }
     if (state) for (const file of this.tails.keys()) if (!paths.has(file)) this.tails.delete(file);

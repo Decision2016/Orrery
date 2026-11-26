@@ -1,13 +1,15 @@
 import os from 'node:os';
 import path from 'node:path';
 import type {
-  AgentRuntime, AttentionAlert, EventEntry, OrrerySnapshot, SubagentNode, TaskItem, TaskStatus,
+  AgentRuntime, AttentionAlert, EventEntry, ModelUsageEntry, OrrerySnapshot, SubagentNode, TaskItem, TaskStatus,
   TimelineSegment, TokenRatePoint,
 } from '@orrery/shared';
 import type { CollectorOutput } from '../adapters/types.js';
 
 const HOUR = 3_600_000;
 const TOKEN_BUCKET_MS = 15_000;
+type DailyCounter = { total: number; provider: string; model?: string; adapterId?: string };
+const modelKey = (provider: string, model?: string) => JSON.stringify([provider, model]);
 
 export interface ReconcilerHistory {
   tasksById?: Map<string, TaskItem>;
@@ -19,7 +21,7 @@ export interface ReconcilerHistory {
     counters: Map<string, number>;
     points: TokenRatePoint[];
     midnight: number;
-    daily: Map<string, { total: number; adapterId?: string }>;
+    daily: Map<string, DailyCounter>;
   };
 }
 
@@ -220,17 +222,53 @@ function buildAlerts(
     Date.parse(b.createdAt) - Date.parse(a.createdAt)), alert => alert.id);
 }
 
+function reconcileModelUsage(outputs: CollectorOutput[], midnight: number) {
+  const reports = outputs.flatMap(output => (output.modelUsage ?? []).map(entry => ({
+    entry: Date.parse(output.collectedAt) >= midnight ? entry : { ...entry, todayTokens: 0 },
+    direct: entry.providerId === output.adapterId,
+  })));
+  const byUsage = (a: ModelUsageEntry, b: ModelUsageEntry) => b.tokens24h - a.tokens24h || b.todayTokens - a.todayTokens;
+  reports.sort((a, b) => Number(b.direct) - Number(a.direct) || byUsage(a.entry, b.entry));
+  return uniqueBy(reports, ({ entry }) => modelKey(entry.providerId, entry.model)).map(report => report.entry).sort(byUsage);
+}
+
+function reconcileQuotas(outputs: CollectorOutput[]) {
+  const quotas = outputs.flatMap(output => output.quotas).sort((a, b) =>
+    Number(a.sourceMode === 'local-only') - Number(b.sourceMode === 'local-only') ||
+    (Date.parse(b.checkedAt ?? '') || 0) - (Date.parse(a.checkedAt ?? '') || 0));
+  const measured = new Set(quotas.filter(quota => quota.sourceMode !== 'local-only').map(quota => quota.providerId));
+  return uniqueBy(quotas, quota => JSON.stringify([quota.providerId, quota.windowId]))
+    .filter(quota => quota.sourceMode !== 'local-only' || !measured.has(quota.providerId))
+    .map(quota => ({ ...quota, remainingPercent: quota.sourceMode === 'local-only' ? undefined
+      : Math.max(0, Math.min(100, 100 - quota.usedPercent)) }));
+}
+
 function updateTokens(
-  outputs: CollectorOutput[], tasks: TaskItem[], matches: Map<string, TaskItem>, history: ReconcilerHistory,
+  outputs: CollectorOutput[], modelUsage: ModelUsageEntry[], tasks: TaskItem[], matches: Map<string, TaskItem>, history: ReconcilerHistory,
   nowMs: number, runningCount: number,
 ) {
   const now = new Date(nowMs).toISOString();
   const midnight = new Date(nowMs).setHours(0, 0, 0, 0);
   const previous = history.tokens;
-  const daily = previous?.midnight === midnight ? previous.daily : new Map<string, { total: number; adapterId?: string }>();
+  const daily = previous?.midnight === midnight ? previous.daily : new Map<string, DailyCounter>();
   const counters = new Map<string, number>();
   const keysBySourceTask = new Map<string, string>();
   let delta = 0;
+  let todayTokens = 0;
+  const models = new Set<string>();
+  // T3 can record a selected alias while the native transcript records the serving model.
+  // A provider's daily total includes both names for that session.
+  const direct = new Set(outputs.filter(output => output.todayTokens !== undefined &&
+    output.modelUsage?.some(entry => entry.providerId === output.adapterId)).map(output => output.adapterId));
+  const covered = (provider: string, model?: string) => direct.has(provider) || models.has(modelKey(provider, model));
+  for (const entry of modelUsage) {
+    const key = modelKey(entry.providerId, entry.model);
+    models.add(key);
+    const last = previous?.midnight === midnight ? previous.counters.get(key) : undefined;
+    delta += Math.max(0, entry.todayTokens - (last ?? entry.todayTokens));
+    counters.set(key, entry.todayTokens);
+    todayTokens += entry.todayTokens;
+  }
   for (const task of tasks) {
     if (!task.tokens) continue;
     const key = 'task:' + (task.externalIds.codexThreadId ?? task.id);
@@ -247,20 +285,22 @@ function updateTokens(
     const last = previous?.counters.get(key) ?? (previous && started >= previous.observedAt ? 0 : total);
     const gained = Math.max(0, total - last);
     counters.set(key, total);
-    delta += gained;
+    if (!covered(task.provider, task.model)) delta += gained;
     // A lifetime counter from a session started yesterday is not a daily counter.
-    daily.set(key, { total: started >= midnight ? total : (daily.get(key)?.total ?? 0) + gained });
+    daily.set(key, { provider: task.provider, model: task.model, total: started >= midnight ? total : (daily.get(key)?.total ?? 0) + gained });
   }
 
   const reportedTotals = new Map<string, number>();
   for (const output of outputs) {
     const reported = output.todayTokens !== undefined && Date.parse(output.collectedAt) >= midnight;
-    let overlap = 0;
+    const reportedModels = output.modelUsage ?? [];
+    let overlap = reportedModels.reduce((sum, entry) => sum + entry.todayTokens, 0);
     for (const task of output.tasks) {
       if (!task.tokens) continue;
       const key = keysBySourceTask.get(task.id);
       if (key) daily.get(key)!.adapterId = output.adapterId;
-      else if (matches.has(task.id) && Date.parse(task.startedAt) >= midnight) overlap += task.tokens.totalTokens;
+      else if (reported && matches.has(task.id) && Date.parse(task.startedAt) >= midnight &&
+        !reportedModels.some(entry => entry.providerId === task.provider && entry.model === task.model)) overlap += task.tokens.totalTokens;
     }
     if (reported) {
       const total = Math.max(0, output.todayTokens! - overlap);
@@ -273,9 +313,9 @@ function updateTokens(
       }
     }
   }
-  let todayTokens = [...reportedTotals.values()].reduce((sum, total) => sum + total, 0);
-  for (const { total, adapterId } of daily.values()) {
-    if (adapterId && !reportedTotals.has(adapterId)) todayTokens += total;
+  for (const total of reportedTotals.values()) todayTokens += total;
+  for (const { total, adapterId, provider, model } of daily.values()) {
+    if (adapterId && !reportedTotals.has(adapterId) && !covered(provider, model)) todayTokens += total;
   }
   let pending = (previous?.pending ?? 0) + delta;
   let bucketStart = previous?.bucketStart ?? nowMs;
@@ -306,7 +346,7 @@ export function reconcileOutputs(
   const processes = uniqueBy(processSamples.flatMap(output => output.processes ?? []), p => p.pid);
   const runtimeById = new Map(uniqueBy(outputs.flatMap(output => output.agents), agent => agent.id)
     .map(agent => [agent.id, agent]));
-  const names: Record<string, string> = { t3: 'T3 Code', codex: 'Codex', 'claude-code': 'Claude Code', opencode: 'OpenCode' };
+  const names: Record<string, string> = { t3: 'T3 Code', codex: 'Codex', antigravity: 'Antigravity', 'claude-code': 'Claude Code', opencode: 'OpenCode' };
   for (const proc of processes) {
     if (runtimeById.has(proc.agentId)) continue;
     runtimeById.set(proc.agentId, {
@@ -355,7 +395,8 @@ export function reconcileOutputs(
   });
 
   const runningCount = tasks.filter(task => task.status === 'running').length;
-  const { todayTokens, tokenHistory } = updateTokens(outputs, tasks, matches, history, nowMs, runningCount);
+  const modelUsage = reconcileModelUsage(newest, new Date(nowMs).setHours(0, 0, 0, 0));
+  const { todayTokens, tokenHistory } = updateTokens(outputs, modelUsage, tasks, matches, history, nowMs, runningCount);
   const taskById = new Map<string, TaskItem>(tasks.map(task => [task.id, task]));
   const events = latestEvents(outputs.flatMap(output => output.events)).map(event => {
       const taskId = event.taskId && (aliases.get(event.taskId) ?? event.taskId);
@@ -381,7 +422,7 @@ export function reconcileOutputs(
       completed24hCount: recent.filter(task => task.status === 'completed').length, todayTokens,
       activeSubagents: uniqueSubagents(tasks.flatMap(task => task.subagents), childIds).filter(node => isActive(node.status)).length,
     },
-    quotas: uniqueBy(newest.flatMap(output => output.quotas), quota => JSON.stringify([quota.providerId, quota.windowId])),
+    quotas: reconcileQuotas(newest), modelUsage,
     host: newest.find(output => output.host)?.host ?? {
       cpuPercent: 0, memoryUsedGb: usedMemory / 1024 ** 3, memoryTotalGb: totalMemory / 1024 ** 3,
       memoryPercent: 100 * usedMemory / totalMemory, agentProcessCount: processes.length, uptimeSec: os.uptime(), collectedAt: now,
