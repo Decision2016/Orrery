@@ -4,6 +4,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import type { OrreryConfig } from '../config.js';
+import { AppearanceStore, AppearanceValidationError, MAX_WALLPAPER_BYTES } from '../engine/appearance.js';
 import { LayoutStore, LayoutValidationError } from '../engine/layouts.js';
 import type { OrreryStore } from '../engine/store.js';
 
@@ -25,24 +26,29 @@ function json(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  if (Number(req.headers['content-length']) > MAX_BODY) {
+async function readBytes(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  if (Number(req.headers['content-length']) > maxBytes) {
     req.resume();
-    throw new HttpError(413, 'JSON body exceeds 1 MB.');
+    throw new HttpError(413, 'Payload exceeds size limit.');
   }
   const chunks: Buffer[] = [];
   let length = 0;
   for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     length += bytes.length;
-    if (length > MAX_BODY) {
+    if (length > maxBytes) {
       req.resume();
-      throw new HttpError(413, 'JSON body exceeds 1 MB.');
+      throw new HttpError(413, 'Payload exceeds size limit.');
     }
     chunks.push(bytes);
   }
+  return Buffer.concat(chunks, length);
+}
+
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  const bytes = await readBytes(req, MAX_BODY);
   try {
-    return JSON.parse(Buffer.concat(chunks, length).toString('utf8'));
+    return JSON.parse(bytes.toString('utf8'));
   } catch {
     throw new HttpError(400, 'Expected a JSON body.');
   }
@@ -83,12 +89,14 @@ async function launch(command: string, args: string[]) {
   child.unref();
 }
 
-export function createRequestHandler({ store, layoutStore, config, onShutdown }: {
+export function createRequestHandler({ store, layoutStore, appearanceStore, config, onShutdown }: {
   store: Pick<OrreryStore, 'getHealth' | 'getSnapshot' | 'getTask' | 'subscribe'>;
   layoutStore: LayoutStore;
-  config: Pick<OrreryConfig, 'webDistDir'>;
+  appearanceStore?: AppearanceStore;
+  config: Pick<OrreryConfig, 'webDistDir'> & Partial<Pick<OrreryConfig, 'appearanceFilePath'>>;
   onShutdown?: () => void;
 }) {
+  const appearance = appearanceStore ?? (config.appearanceFilePath ? new AppearanceStore({ appearanceFilePath: config.appearanceFilePath }) : undefined);
   return async (req: IncomingMessage, res: ServerResponse) => {
     try {
       res.setHeader('Vary', 'Origin');
@@ -98,7 +106,7 @@ export function createRequestHandler({ store, layoutStore, config, onShutdown }:
         res.setHeader('Access-Control-Allow-Origin', origin);
       }
       if (req.method === 'OPTIONS') {
-        res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
+        res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Filename' });
         res.end();
         return;
       }
@@ -108,6 +116,19 @@ export function createRequestHandler({ store, layoutStore, config, onShutdown }:
         if (pathname === '/api/health') return json(res, 200, store.getHealth());
         if (pathname === '/api/snapshot') return json(res, 200, store.getSnapshot());
         if (pathname === '/api/layouts') return json(res, 200, await layoutStore.load());
+        if (pathname === '/api/appearance' && appearance) return json(res, 200, await appearance.load());
+        if (pathname === '/api/appearance/wallpaper' && appearance) {
+          const wallpaper = await appearance.readWallpaper();
+          if (!wallpaper) throw new HttpError(404, 'Wallpaper not configured.');
+          res.writeHead(200, {
+            'Content-Type': wallpaper.contentType,
+            'Content-Length': wallpaper.bytes.length,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          });
+          res.end(wallpaper.bytes);
+          return;
+        }
         if (pathname.startsWith('/api/tasks/')) {
           const task = store.getTask(pathname.slice('/api/tasks/'.length));
           if (!task) throw new HttpError(404, 'Task not found.');
@@ -131,6 +152,19 @@ export function createRequestHandler({ store, layoutStore, config, onShutdown }:
         if (pathname !== '/api' && !pathname.startsWith('/api/')) return await serveStatic(res, config.webDistDir, pathname);
       }
       if (req.method === 'PUT' && pathname === '/api/layouts') return json(res, 200, await layoutStore.save(await readJson(req)));
+      if (req.method === 'PUT' && pathname === '/api/appearance' && appearance) {
+        return json(res, 200, await appearance.save(await readJson(req)));
+      }
+      if (req.method === 'POST' && pathname === '/api/appearance/wallpaper' && appearance) {
+        const contentType = String(req.headers['content-type'] ?? '');
+        const rawName = req.headers['x-filename'];
+        const filename = typeof rawName === 'string' ? decodeURIComponent(rawName) : undefined;
+        const bytes = await readBytes(req, MAX_WALLPAPER_BYTES);
+        return json(res, 200, await appearance.saveWallpaper(bytes, contentType, filename));
+      }
+      if (req.method === 'DELETE' && pathname === '/api/appearance/wallpaper' && appearance) {
+        return json(res, 200, await appearance.clearWallpaper());
+      }
       if (req.method === 'POST' && pathname === '/api/actions/open-folder') {
         const body = await readJson(req);
         if (!body || typeof body !== 'object' || !('path' in body) || typeof body.path !== 'string' ||
@@ -185,7 +219,7 @@ export function createRequestHandler({ store, layoutStore, config, onShutdown }:
     } catch (error) {
       if (res.destroyed || res.writableEnded) return;
       if (error instanceof HttpError) return json(res, error.status, { error: error.message });
-      if (error instanceof LayoutValidationError || error instanceof URIError) return json(res, 400, { error: error.message });
+      if (error instanceof LayoutValidationError || error instanceof AppearanceValidationError || error instanceof URIError) return json(res, 400, { error: error.message });
       if (missing(error)) return json(res, 404, { error: 'File not found.' });
       return json(res, 500, { error: 'Orrery could not complete the request.' });
     }

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createDefaultAdapters } from './adapters/registry.js';
 import { loadConfig, type OrreryConfig } from './config.js';
+import { AppearanceStore } from './engine/appearance.js';
 import { LayoutStore } from './engine/layouts.js';
 import { OrreryStore } from './engine/store.js';
 import { createRequestHandler } from './routes/api.js';
@@ -11,6 +12,7 @@ import { createRequestHandler } from './routes/api.js';
 export async function startServer(overrideConfig: Partial<OrreryConfig> = {}) {
   const config = { ...loadConfig(), ...overrideConfig };
   const layoutStore = new LayoutStore(config);
+  const appearanceStore = new AppearanceStore(config);
   const store = new OrreryStore(createDefaultAdapters(config), config);
   let closing: Promise<void> | undefined;
   let server: Server;
@@ -26,7 +28,7 @@ export async function startServer(overrideConfig: Partial<OrreryConfig> = {}) {
   function onSignal() {
     void close().catch(error => { console.error(error); process.exitCode = 1; });
   }
-  server = createServer(createRequestHandler({ store, layoutStore, config, onShutdown: onSignal }));
+  server = createServer(createRequestHandler({ store, layoutStore, appearanceStore, config, onShutdown: onSignal }));
   server.listen(config.port, config.host);
   await once(server, 'listening');
   const address = server.address();

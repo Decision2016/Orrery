@@ -307,3 +307,32 @@ export interface LayoutsPayload {
   activePresetId: string;
   presets: LayoutPreset[];
 }
+
+export type BackgroundKind = 'none' | 'preset' | 'image';
+export type BackgroundPresetId = 'nebula' | 'aurora' | 'sunset' | 'grid';
+export type WallpaperFit = 'cover' | 'contain' | 'fill';
+export type WallpaperPosition = 'center' | 'top' | 'bottom';
+
+export interface AppearanceSettings {
+  backgroundKind: BackgroundKind;
+  backgroundPreset: BackgroundPresetId;
+  wallpaperVersion?: number;
+  wallpaperName?: string;
+  wallpaperFit: WallpaperFit;
+  wallpaperPosition: WallpaperPosition;
+  panelOpacity: number;
+  hudOpacity: number;
+  panelBlurPx: number;
+  scrimOpacity: number;
+}
+
+export const DEFAULT_APPEARANCE: AppearanceSettings = {
+  backgroundKind: 'none',
+  backgroundPreset: 'nebula',
+  wallpaperFit: 'cover',
+  wallpaperPosition: 'center',
+  panelOpacity: 0.84,
+  hudOpacity: 0.88,
+  panelBlurPx: 14,
+  scrimOpacity: 0.24,
+};

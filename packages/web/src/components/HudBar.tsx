@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, EyeOff, GitFork, Hash, Hourglass, LayoutGrid, ListOrdered, LockKeyhole, Minimize, Moon, PencilRuler, Play, Plus, Power, RotateCcw, Search, Sun, Trash2, Type, X } from 'lucide-react';
+import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, EyeOff, GitFork, Hash, Hourglass, Image as ImageIcon, LayoutGrid, ListOrdered, LockKeyhole, Minimize, Moon, PencilRuler, Play, Plus, Power, RotateCcw, Search, Sun, Trash2, Type, X } from 'lucide-react';
 import type { SnapshotSummary } from '@orrery/shared';
 import type { ConnectionState } from '../hooks/useOrreryStream';
 import type { useLayouts } from '../hooks/useLayouts';
@@ -46,10 +46,12 @@ interface HudProps {
   onTextScale: (value: TextScale) => void;
   theme: Theme;
   onToggleTheme: () => void;
+  appearanceOpen: boolean;
+  onToggleAppearance: () => void;
   onNotice: (message: string) => void;
 }
 
-export function HudBar({ summary, connection, layouts, filter, onFilter, query, onQuery, editing, onEdit, onDrawer, notifications, onNotifications, textScale, onTextScale, theme, onToggleTheme, onNotice }: HudProps) {
+export function HudBar({ summary, connection, layouts, filter, onFilter, query, onQuery, editing, onEdit, onDrawer, notifications, onNotifications, textScale, onTextScale, theme, onToggleTheme, appearanceOpen, onToggleAppearance, onNotice }: HudProps) {
   const themeAction = theme === 'dark' ? '切换浅色模式' : '切换深色模式';
   const search = useRef<HTMLInputElement>(null);
   const [modal, setModal] = useState<'save' | 'delete' | 'quit' | null>(null);
@@ -121,6 +123,8 @@ export function HudBar({ summary, connection, layouts, filter, onFilter, query, 
       </button>
       <button className="icon-button" aria-label={themeAction} title={themeAction} onClick={onToggleTheme}>
         {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
+      <button className={`icon-button ${appearanceOpen ? 'tone-cyan' : ''}`} aria-label="自定义背景与透明度" title="自定义背景与透明度" aria-pressed={appearanceOpen} onClick={onToggleAppearance}>
+        <ImageIcon size={15} /></button>
       <button className={`icon-button ${notifications ? 'tone-cyan' : ''}`} onClick={onNotifications} aria-label="桌面通知" title={notifications ? '关闭桌面通知' : '启用桌面通知'} aria-pressed={notifications}>
         {notifications ? <Bell size={15} /> : <BellOff size={15} />}</button>
       <button className="icon-button" aria-label={fullscreen ? '退出全屏' : '进入全屏'} title={fullscreen ? '退出全屏' : '进入全屏'} onClick={async () => {
