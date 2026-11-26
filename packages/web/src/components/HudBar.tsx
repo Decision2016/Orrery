@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, GitFork, Hash, Hourglass, LayoutGrid, ListOrdered, LockKeyhole, Minimize, PencilRuler, Play, Plus, RotateCcw, Search, Trash2, Type, X } from 'lucide-react';
+import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, GitFork, Hash, Hourglass, LayoutGrid, ListOrdered, LockKeyhole, Minimize, Moon, PencilRuler, Play, Plus, RotateCcw, Search, Sun, Trash2, Type, X } from 'lucide-react';
 import type { SnapshotSummary } from '@orrery/shared';
 import type { ConnectionState } from '../hooks/useOrreryStream';
 import type { useLayouts } from '../hooks/useLayouts';
@@ -9,6 +9,7 @@ import { Dialog } from './Telemetry';
 
 export type SourceFilter = 'all' | 't3' | 'codex' | 'merged';
 export type TextScale = 'normal' | 'large' | 'xlarge';
+export type Theme = 'dark' | 'light';
 const scaleLabels: Record<TextScale, string> = {
   normal: '标准字号',
   large: '14.1" 大字',
@@ -42,10 +43,13 @@ interface HudProps {
   onNotifications: () => void;
   textScale: TextScale;
   onTextScale: (value: TextScale) => void;
+  theme: Theme;
+  onToggleTheme: () => void;
   onNotice: (message: string) => void;
 }
 
-export function HudBar({ summary, connection, layouts, filter, onFilter, query, onQuery, editing, onEdit, onDrawer, notifications, onNotifications, textScale, onTextScale, onNotice }: HudProps) {
+export function HudBar({ summary, connection, layouts, filter, onFilter, query, onQuery, editing, onEdit, onDrawer, notifications, onNotifications, textScale, onTextScale, theme, onToggleTheme, onNotice }: HudProps) {
+  const themeAction = theme === 'dark' ? '切换浅色模式' : '切换深色模式';
   const search = useRef<HTMLInputElement>(null);
   const [modal, setModal] = useState<'save' | 'delete' | null>(null);
   const [name, setName] = useState('');
@@ -74,9 +78,9 @@ export function HudBar({ summary, connection, layouts, filter, onFilter, query, 
   return <header className="hud">
     <div className="wordmark" aria-label="Orrery">
       <svg viewBox="0 0 40 34" width="39" height="34" aria-hidden="true">
-        <circle cx="20" cy="17" r="10.8" fill="none" stroke="#62e0eb" strokeWidth="1.3" />
-        <ellipse cx="20" cy="17" rx="18.3" ry="6.5" transform="rotate(-29 20 17)" fill="none" stroke="#a0eff2" strokeWidth="1.35" />
-        <circle cx="20" cy="17" r="2.7" fill="#b5fbf5" /><circle cx="34.4" cy="7.4" r="2" fill="#4dd7ef" />
+        <circle cx="20" cy="17" r="10.8" fill="none" stroke="var(--cyan)" strokeWidth="1.3" />
+        <ellipse cx="20" cy="17" rx="18.3" ry="6.5" transform="rotate(-29 20 17)" fill="none" stroke="var(--brand-orbit)" strokeWidth="1.35" />
+        <circle cx="20" cy="17" r="2.7" fill="var(--brand-orbit)" /><circle cx="34.4" cy="7.4" r="2" fill="var(--cyan)" />
       </svg><b>ORRERY</b>
     </div>
     <div className="hud-kpis" aria-label="全局指标">{kpis.map(({ label, value, icon: Icon, tone }) =>
@@ -112,6 +116,8 @@ export function HudBar({ summary, connection, layouts, filter, onFilter, query, 
       }} aria-label="切换字号大小" title={`当前：${scaleLabels[textScale]}（点击循环切换标准 / 14.1" 大字 / 远距超大）`}>
         <Type size={14} /><span>{scaleLabels[textScale]}</span>
       </button>
+      <button className="icon-button" aria-label={themeAction} title={themeAction} onClick={onToggleTheme}>
+        {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
       <button className={`icon-button ${notifications ? 'tone-cyan' : ''}`} onClick={onNotifications} aria-label="桌面通知" title={notifications ? '关闭桌面通知' : '启用桌面通知'} aria-pressed={notifications}>
         {notifications ? <Bell size={15} /> : <BellOff size={15} />}</button>
       <button className="icon-button" aria-label={fullscreen ? '退出全屏' : '进入全屏'} title={fullscreen ? '退出全屏' : '进入全屏'} onClick={async () => {

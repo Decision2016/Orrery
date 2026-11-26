@@ -25,11 +25,11 @@ export function TokenChartWidget({ history }: { history: TokenRatePoint[] }) {
     <div className="chart-legend"><span className="tone-cyan"><i />Tokens/min</span><span className="tone-violet"><i />并发任务</span></div>
     <figure className="burn-chart"><div className="chart-y"><span>{formatTokens(peak)}</span><span>{formatTokens(peak / 2)}</span><span>0</span></div>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`Token 速率与并发任务，当前每分钟 ${last.tokensPerMin} tokens、${last.activeTasks} 个任务`}>
-        <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22d3ee" stopOpacity=".32" /><stop offset="100%" stopColor="#22d3ee" stopOpacity=".025" /></linearGradient></defs>
+        <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--cyan)" stopOpacity=".32" /><stop offset="100%" stopColor="var(--cyan)" stopOpacity=".025" /></linearGradient></defs>
         {[1, height / 2, height - 1].map(tick => <path key={tick} d={`M0 ${tick}H${width}`} className="chart-grid" />)}
         <path d={line + ` L${width},${height} L${x(first.time)},${height} Z`} fill={`url(#${gradient})`} />
         <path d={active} className="active-line" /><path d={line} className="token-line" />
-        <circle cx={width - 2} cy={y(last.activeTasks, maxTasks)} r="2.6" fill="#b5a4fb" /><circle cx={width - 2} cy={y(last.tokensPerMin, peak)} r="2.8" fill="#7cebf5" />
+        <circle cx={width - 2} cy={y(last.activeTasks, maxTasks)} r="2.6" fill="var(--violet)" /><circle cx={width - 2} cy={y(last.tokensPerMin, peak)} r="2.8" fill="var(--cyan)" />
       </svg><div className="chart-y right"><span>{maxTasks}</span><span>0</span></div>
       <figcaption><time>{formatClock(first.time, false)}</time>{first.time !== last.time && <time>{formatClock(last.time, false)}</time>}</figcaption>
     </figure>

@@ -1,15 +1,20 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Activity, BellRing, ChartNoAxesCombined, Check, Clock3, Cpu, Crosshair, Layers3, Radio, RadioTower, ScrollText, Waypoints, X } from 'lucide-react';
+import { Activity, BellRing, ChartNoAxesCombined, Check, Clock3, Cpu, Crosshair, Gauge, Layers3, Radio, RadioTower, ScrollText, Waypoints, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { SourceKind, TaskStatus, WidgetType } from '@orrery/shared';
 import { percent, sourceNames, statusColorClass, statusLabel } from '../lib/format';
 import { openTarget } from '../lib/api';
 
 export const widgetIcons: Record<WidgetType, LucideIcon> = {
-  agents: Cpu, 'quota-host': Activity, attention: BellRing, 'active-tasks': Layers3, timeline: ChartNoAxesCombined,
+  agents: Cpu, 'quota-host': Activity, 'model-usage': Gauge, attention: BellRing, 'active-tasks': Layers3, timeline: ChartNoAxesCombined,
   inspector: Crosshair, 'queue-cron': Clock3, 'event-stream': Radio, 'token-chart': Waypoints,
 };
+
+export function WidgetIcon({ type, size }: { type: WidgetType; size: number }) {
+  const Icon = widgetIcons[type];
+  return <Icon size={size} className="widget-icon" aria-hidden="true" />;
+}
 
 export function SourceBadge({ source }: { source: SourceKind }) {
   return <span className={`source-badge source-${source}`}>{sourceNames[source]}</span>;

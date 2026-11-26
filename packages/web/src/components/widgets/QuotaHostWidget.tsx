@@ -1,22 +1,14 @@
 import { Cpu, HardDrive, MemoryStick, Timer } from 'lucide-react';
 import type { HostMetrics, QuotaWindow } from '@orrery/shared';
-import { useNow } from '../../hooks/useNow';
-import { formatCountdown, formatDuration } from '../../lib/format';
+import { formatDuration } from '../../lib/format';
+import { QuotaReading } from '../QuotaReading';
 import { Meter } from '../Telemetry';
 
 export function QuotaHostWidget({ quotas, host }: { quotas: QuotaWindow[]; host: HostMetrics }) {
-  const now = useNow();
-  const tone = (value: number) => value >= 90 ? 'tone-rose' : value >= 70 ? 'tone-amber' : 'tone-green';
   return <div className="widget-scroll padded quota-widget">
     <h3 className="section-label">Provider 配额</h3>
-    {quotas.length ? quotas.map(q => <div className="quota-row" key={q.providerId + '/' + q.windowId}>
-      <div className="between"><strong>{q.providerName}<small> / {q.label}</small></strong>
-        <b className={`mono ${tone(q.usedPercent)}`}>{q.unavailableReason ? '—' : q.usedPercent.toFixed(0) + '%'}</b></div>
-      {q.unavailableReason ? <p className="muted">{q.unavailableReason}</p> : <>
-        <Meter value={q.usedPercent} tone={tone(q.usedPercent)} />
-        {q.resetsAt && <div className="reset-time"><Timer size={11} />重置 <time title={q.resetsAt}>{formatCountdown(q.resetsAt, now)}</time></div>}
-      </>}
-    </div>) : <p className="muted quiet-line">暂无 Provider 配额数据</p>}
+    {quotas.length ? quotas.map(q => <QuotaReading key={q.providerId + '/' + q.windowId} quota={q} />)
+      : <p className="muted quiet-line">暂无 Provider 配额数据</p>}
     <h3 className="section-label ruled">主机资源</h3>
     <div className="host-row"><div className="between"><span><Cpu size={14} />CPU</span><b>{host.cpuPercent.toFixed(1)}%</b></div>
       <Meter value={host.cpuPercent} tone={host.cpuPercent >= 90 ? 'tone-rose' : 'tone-cyan'} /></div>

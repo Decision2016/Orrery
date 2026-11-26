@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import type { SourceKind, TaskItem, WidgetType } from '@orrery/shared';
 import { useLayouts } from './hooks/useLayouts';
 import { useOrreryStream } from './hooks/useOrreryStream';
@@ -7,11 +7,12 @@ import { isActive, sourceNames } from './lib/format';
 import { readLocal, writeLocal } from './lib/storage';
 import { GridCanvas } from './components/GridCanvas';
 import { HudBar } from './components/HudBar';
-import type { SourceFilter, TextScale } from './components/HudBar';
+import type { SourceFilter, TextScale, Theme } from './components/HudBar';
 import { Dialog, EmptyState, widgetIcons } from './components/Telemetry';
 import { WidgetDrawer } from './components/WidgetDrawer';
 import { AgentsWidget } from './components/widgets/AgentsWidget';
 import { QuotaHostWidget } from './components/widgets/QuotaHostWidget';
+import { ModelUsageWidget } from './components/widgets/ModelUsageWidget';
 import { AttentionWidget } from './components/widgets/AttentionWidget';
 import { ActiveTasksWidget } from './components/widgets/ActiveTasksWidget';
 import { TimelineWidget } from './components/widgets/TimelineWidget';
@@ -31,6 +32,18 @@ export default function App() {
   const [detail, setDetail] = useState<TaskItem | null>(null);
   const [inspectDialog, setInspectDialog] = useState(false);
   const [notice, setNotice] = useState('');
+  const [theme, setTheme] = useState<Theme>(() => document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    root.classList.toggle('dark', theme === 'dark');
+    root.style.colorScheme = theme;
+    try {
+      localStorage.setItem('orrery.theme', theme);
+    } catch {
+      // The current window can still switch themes when storage is disabled.
+    }
+  }, [theme]);
   const [textScale, setTextScale] = useState<TextScale>(() => {
     const saved = readLocal('orrery.textScale');
     if (saved === 'normal' || saved === 'large' || saved === 'xlarge') return saved;
@@ -88,9 +101,11 @@ export default function App() {
   const inspector = <InspectorWidget key={selected?.id} task={selected} pinned={Boolean(selectedId)} onPin={selectTask} onFollow={() => setSelectedId(null)}
     generatedAt={snapshot?.generatedAt ?? ''} t3Url={snapshot?.agents.find(a => /t3/i.test(a.id + ' ' + a.name) && a.endpointUrl)?.endpointUrl} />;
   const count = (n: number) => snapshot ? String(n).padStart(2, '0') : '—';
+  const modelUsage = snapshot?.modelUsage ?? [];
   const badges: Record<WidgetType, string> = {
     agents: snapshot ? `${snapshot.agents.filter(a => a.status === 'online').length}/${snapshot.agents.length} ONLINE` : '—',
     'quota-host': snapshot ? `${snapshot.quotas.length} WINDOWS` : '—',
+    'model-usage': snapshot ? `${modelUsage.length} MODELS` : '—',
     attention: count(view.alerts.length), 'active-tasks': count(view.tasks.length), timeline: count(view.timeline.length),
     inspector: selected ? (selectedId ? 'PINNED' : 'AUTO') : '—', 'queue-cron': count(view.scheduled.length), 'event-stream': count(view.events.length),
     'token-chart': snapshot ? `${snapshot.tokenHistory.length} SAMPLES` : '—',
@@ -100,6 +115,7 @@ export default function App() {
     switch (type) {
       case 'agents': return <AgentsWidget agents={snapshot.agents} />;
       case 'quota-host': return <QuotaHostWidget quotas={snapshot.quotas} host={snapshot.host} />;
+      case 'model-usage': return <ModelUsageWidget quotas={snapshot.quotas} modelUsage={modelUsage} />;
       case 'attention': return <AttentionWidget alerts={view.alerts} total={snapshot.alerts.length} onSelect={selectTask} connected={connection === 'connected'} />;
       case 'active-tasks': return <ActiveTasksWidget tasks={view.tasks} selectedId={selected?.id} onSelect={selectTask} generatedAt={snapshot.generatedAt} />;
       case 'timeline': return <TimelineWidget segments={view.timeline} selectedId={selected?.id} onSelect={selectTask} />;
@@ -110,10 +126,11 @@ export default function App() {
     }
   }
 
-  return <div className="orrery-deck h-screen w-screen flex flex-col overflow-hidden" data-text-scale={textScale}>
+  return <div className="orrery-deck h-screen w-screen flex flex-col overflow-hidden" data-theme={theme} data-text-scale={textScale}>
     <HudBar summary={snapshot?.summary} connection={connection} layouts={layouts} filter={filter} onFilter={setFilter} query={query} onQuery={setQuery}
       editing={editing} onEdit={() => { setEditing(!editing); setDrawer(false); }} onDrawer={() => setDrawer(true)} notifications={notifications}
       textScale={textScale} onTextScale={next => { setTextScale(next); writeLocal('orrery.textScale', next); }}
+      theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}
       onNotifications={async () => {
         const enabled = !notifications && await requestAlerts().catch(() => false);
         if (!notifications && !enabled) setNotice('桌面通知未获授权，可在系统或浏览器设置中启用');

@@ -4,7 +4,7 @@ import { GridStack } from 'gridstack';
 import { GripHorizontal, Plus, X } from 'lucide-react';
 import { GRID_COLUMNS, GRID_ROWS, WIDGET_CATALOG } from '@orrery/shared';
 import type { GridWidgetItem, LayoutPreset, WidgetType } from '@orrery/shared';
-import { widgetIcons } from './Telemetry';
+import { WidgetIcon } from './Telemetry';
 
 interface CanvasProps {
   preset: LayoutPreset;
@@ -34,7 +34,7 @@ function GridSurface(props: CanvasProps) {
 
   useLayoutEffect(() => {
     const container = viewport.current!;
-    const measuredHeight = () => Math.max(44, Math.floor((container.clientHeight - 12) / GRID_ROWS));
+    const measuredHeight = () => Math.max(1, Math.floor((container.clientHeight - 12) / GRID_ROWS));
     const initial = latest.current;
     const grid = GridStack.init({
       auto: false, column: GRID_COLUMNS, maxRow: GRID_ROWS, float: true, margin: 5, animate: true,
@@ -89,14 +89,13 @@ function GridSurface(props: CanvasProps) {
   return <main className={`canvas-viewport ${editing ? 'editing' : ''}`} ref={viewport} aria-label="观测画布">
     <div ref={element} className="grid-stack">{preset.items.map(item => {
       const meta = WIDGET_CATALOG[item.type];
-      const Icon = widgetIcons[item.type];
       return <section key={item.id} className="grid-stack-item" data-widget={item.type} tabIndex={-1} aria-label={item.title ?? meta.title}
         gs-id={item.id} gs-x={item.x} gs-y={item.y} gs-w={item.w} gs-h={item.h} gs-min-w={item.minW ?? meta.minW}
         gs-min-h={item.minH ?? meta.minH} gs-max-w={item.maxW} gs-max-h={item.maxH}>
         <div className="grid-stack-item-content widget-frame">
           <header className="widget-head orrery-drag-handle">
             {editing && <GripHorizontal size={13} className="grip" />}
-            <Icon size={14} className="widget-icon" /><h2 title={meta.title}>{item.title || meta.shortTitle}</h2><span className="frame-badge">{badges[item.type]}</span>
+            <WidgetIcon type={item.type} size={14} /><h2 title={meta.title}>{item.title || meta.shortTitle}</h2><span className="frame-badge">{badges[item.type]}</span>
             {editing && <button className="remove-widget" aria-label={'移除 ' + meta.shortTitle} title="移除组件" onClick={() => onRemove(item.id)}><X size={13} /></button>}
           </header>
           <div className="widget-body">{renderWidget(item.type)}</div>

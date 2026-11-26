@@ -17,6 +17,8 @@ export const statusColorClass = (status: TaskStatus) => statuses[status][1];
 export const isActive = (s: TaskStatus) => s === 'running' || s === 'waiting_approval' || s === 'waiting_input';
 export const isAbnormal = (s: TaskStatus) => s === 'failed' || s === 'interrupted' || s === 'stale';
 export const percent = (n: number) => Math.min(100, Math.max(0, n));
+export const formatPercent = (n: number) => `${+n.toFixed(1)}%`;
+export const remainingQuotaTone = (n: number) => n > 40 ? 'tone-green' : n >= 15 ? 'tone-amber' : 'tone-rose';
 
 export const sourceNames: Record<SourceKind, string> = {
   t3: 'T3 Code', 't3-codex': 'T3 → Codex', 'codex-app': 'Codex App', 'codex-cli': 'Codex CLI',
