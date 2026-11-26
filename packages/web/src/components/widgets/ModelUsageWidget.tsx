@@ -1,27 +1,96 @@
 import { useState } from 'react';
-import { Gauge } from 'lucide-react';
+import { Check, Gauge, SlidersHorizontal } from 'lucide-react';
 import type { ModelUsageEntry, QuotaWindow } from '@orrery/shared';
 import { formatPercent, formatTokens, remainingQuotaTone } from '../../lib/format';
+import { readLocal, writeLocal } from '../../lib/storage';
 import { QuotaReading } from '../QuotaReading';
 import { EmptyState, Meter } from '../Telemetry';
 
+const VISIBILITY_KEY = 'orrery.quotaVisibility';
+
+function loadVisibility(): Record<string, boolean> {
+  const saved = readLocal(VISIBILITY_KEY);
+  return saved && typeof saved === 'object' && !Array.isArray(saved) ? (saved as Record<string, boolean>) : {};
+}
+
+function quotaKey(quota: QuotaWindow) {
+  return `${quota.providerId}/${quota.windowId}`;
+}
+
+function isQuotaVisible(quota: QuotaWindow, prefs: Record<string, boolean>) {
+  const key = quotaKey(quota);
+  if (key in prefs) return prefs[key];
+  // Custom API endpoints (e.g. Claude Code backed by DeepSeek API) have no fixed subscription quota; hide by default.
+  return quota.windowId !== 'custom_api';
+}
+
 export function ModelUsageWidget({ quotas, modelUsage }: { quotas: QuotaWindow[]; modelUsage: ModelUsageEntry[] }) {
   const [period, setPeriod] = useState<'tokens24h' | 'todayTokens'>('tokens24h');
+  const [visibility, setVisibility] = useState<Record<string, boolean>>(loadVisibility);
+  const [configuring, setConfiguring] = useState(false);
+
+  const visibleQuotas = quotas.filter(q => isQuotaVisible(q, visibility));
+  const hiddenCount = quotas.length - visibleQuotas.length;
+
+  const toggleQuota = (quota: QuotaWindow) => {
+    const key = quotaKey(quota);
+    const next = { ...visibility, [key]: !isQuotaVisible(quota, visibility) };
+    setVisibility(next);
+    writeLocal(VISIBILITY_KEY, next);
+  };
+
   const models = [...modelUsage].sort((a, b) => b[period] - a[period] || a.model.localeCompare(b.model));
   const total = models.reduce((sum, entry) => sum + entry[period], 0);
-  const available = quotas.filter((q): q is QuotaWindow & { remainingPercent: number } =>
+  const available = visibleQuotas.filter((q): q is QuotaWindow & { remainingPercent: number } =>
     q.sourceMode !== 'local-only' && q.remainingPercent !== undefined
   ).sort((a, b) => a.remainingPercent - b.remainingPercent);
 
   return <div className="widget-column model-usage-widget">
     <section className="model-quotas" aria-label="剩余额度">
-      <h3 className="model-section-heading">剩余额度</h3>
+      <div className="model-quotas-head">
+        <h3 className="model-section-heading">剩余额度</h3>
+        {quotas.length > 0 && (
+          <button
+            className={`quota-config-btn ${configuring ? 'is-active' : ''}`}
+            aria-expanded={configuring}
+            title="选择要显示或隐藏的额度卡片"
+            onClick={() => setConfiguring(v => !v)}
+          >
+            <SlidersHorizontal size={12} />
+            <span>显示项{hiddenCount > 0 ? ` (${visibleQuotas.length}/${quotas.length})` : ''}</span>
+          </button>
+        )}
+      </div>
+      {configuring && quotas.length > 0 && (
+        <div className="quota-filter-bar" role="group" aria-label="额度卡片显示设置">
+          {quotas.map(q => {
+            const shown = isQuotaVisible(q, visibility);
+            const shortLabel = q.windowId === 'custom_api'
+              ? `${q.providerName} (${q.label.replace(/^API\s*·\s*/i, '')})`
+              : q.sourceMode === 'local-only'
+                ? q.providerName
+                : `${q.providerName} · ${q.label}`;
+            return (
+              <button
+                key={quotaKey(q)}
+                className={`quota-toggle-chip ${shown ? 'is-on' : ''}`}
+                aria-pressed={shown}
+                onClick={() => toggleQuota(q)}
+              >
+                {shown && <Check size={11} />}
+                <span>{shortLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="widget-scroll model-quota-list">
-        {quotas.length ? quotas.map(quota => {
-          const localUsage = quota.sourceMode === 'local-only' ? modelUsage.filter(m => m.providerId === quota.providerId)
-            .reduce((sum, m) => ({ tokens: sum.tokens + m.tokens24h, calls: sum.calls + m.calls24h }), { tokens: 0, calls: 0 }) : undefined;
-          return <QuotaReading key={quota.providerId + '/' + quota.windowId} quota={quota} localUsage={localUsage} />;
-        }) : <p className="model-empty">暂无额度窗口</p>}
+        {visibleQuotas.length ? visibleQuotas.map(quota => {
+          const localUsage = quota.sourceMode === 'local-only' ? modelUsage.filter(m =>
+            m.providerId === quota.providerId || (quota.providerId === 'claudeAgent' && /claude|deepseek/i.test(m.providerId + ' ' + m.model))
+          ).reduce((sum, m) => ({ tokens: sum.tokens + m.tokens24h, calls: sum.calls + m.calls24h }), { tokens: 0, calls: 0 }) : undefined;
+          return <QuotaReading key={quotaKey(quota)} quota={quota} localUsage={localUsage} />;
+        }) : <p className="model-empty">{quotas.length ? '已隐藏全部额度卡片，点击右上角「显示项」重新开启' : '暂无额度窗口'}</p>}
       </div>
     </section>
     <section className="widget-column" aria-label="各模型用量">

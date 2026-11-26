@@ -74,10 +74,17 @@ export function cachedQuotaWindows(cache: Record<string, unknown>, fallbackId: s
     const windowId = stringValue(window.id) ?? stringValue(window.kind);
     const used = numberValue(window.usedPercent);
     if (!windowId || used === undefined) return [];
+    const kind = stringValue(window.kind);
+    const label = stringValue(window.label) ?? windowId;
+    const resetsAt = timestamp(window.resetsAt);
+    if (windowId === 'custom_api' || (kind === 'other' && /^API\s*·/i.test(label) && !resetsAt)) {
+      return [{ providerId, providerName, windowId, label, usedPercent: 0, checkedAt,
+        sourceMode: 'local-only', unavailableReason: '自定义 API（无固定订阅额度）' }];
+    }
     const usedPercent = Math.max(0, Math.min(100, used));
-    return [{ providerId, providerName, windowId, label: stringValue(window.label) ?? windowId,
+    return [{ providerId, providerName, windowId, label,
       usedPercent, remainingPercent: 100 - usedPercent, windowDurationMins: numberValue(window.windowDurationMins),
-      planType: stringValue(limits.planType), resetsAt: timestamp(window.resetsAt), checkedAt,
+      planType: stringValue(limits.planType), resetsAt, checkedAt,
       sourceMode: 'official-cache', unavailableReason }];
   });
 }

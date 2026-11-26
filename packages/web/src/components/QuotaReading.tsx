@@ -1,4 +1,4 @@
-import { ShieldCheck, Timer } from 'lucide-react';
+import { Plug, ShieldCheck, Timer } from 'lucide-react';
 import type { QuotaWindow } from '@orrery/shared';
 import { useNow } from '../hooks/useNow';
 import { formatCountdown, formatPercent, formatTokens, remainingQuotaTone } from '../lib/format';
@@ -9,12 +9,13 @@ export function QuotaReading({ quota, localUsage }: {
   localUsage?: { tokens: number; calls: number };
 }) {
   const now = useNow();
-  const { providerName, label, planType, usedPercent, remainingPercent, resetsAt, unavailableReason } = quota;
+  const { providerName, windowId, label, planType, usedPercent, remainingPercent, resetsAt, unavailableReason } = quota;
   const local = quota.sourceMode === 'local-only';
+  const isCustomApi = windowId === 'custom_api';
   const value = remainingPercent ?? (unavailableReason ? undefined : usedPercent);
   const tone = remainingPercent !== undefined ? remainingQuotaTone(remainingPercent)
     : usedPercent >= 90 ? 'tone-rose' : usedPercent >= 70 ? 'tone-amber' : 'tone-green';
-  const subLabel = local ? undefined : label.replace(/^API\s*·\s*/i, '');
+  const subLabel = local && !isCustomApi ? undefined : label.replace(/^API\s*·\s*/i, '');
 
   return <article className="quota-reading">
     <header className="quota-heading">
@@ -22,7 +23,11 @@ export function QuotaReading({ quota, localUsage }: {
         {providerName}
         {subLabel && <span>{subLabel}</span>}
       </h4>
-      {local ? (
+      {isCustomApi ? (
+        <span className="quota-plan" title={unavailableReason ?? '自定义 API 接口（无固定订阅额度）'}>
+          <Plug size={11} />自定义 API
+        </span>
+      ) : local ? (
         <span className="local-quota-badge" title={['为保护账号，仅汇总本机记录，不伪造上游探针。', unavailableReason].filter(Boolean).join(' ')}>
           <ShieldCheck size={12} />安全本地
         </span>
@@ -33,14 +38,14 @@ export function QuotaReading({ quota, localUsage }: {
     {local ? (
       <>
         <div className="quota-values">
-          <strong className="tone-violet">
+          <strong className={isCustomApi ? 'tone-amber' : 'tone-violet'}>
             <span className="mono">{formatTokens(localUsage?.tokens ?? 0)}</span>
             <small className="quota-unit">24h tok</small>
           </strong>
           {localUsage && <span>{localUsage.calls.toLocaleString()} 次</span>}
         </div>
         <div className="quota-foot muted" title={unavailableReason ?? '仅统计本地落盘用量，不伪造上游配额探针'}>
-          仅本地用量 · 无伪造探针
+          {isCustomApi ? '自定义 API · 无固定额度' : '仅本地用量 · 无伪造探针'}
         </div>
       </>
     ) : (
