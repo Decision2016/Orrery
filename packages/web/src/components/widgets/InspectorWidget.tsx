@@ -41,9 +41,14 @@ export function InspectorWidget({ task, pinned, onPin, onFollow, t3Url, generate
   const drift = Math.max(0, now - Date.parse(generatedAt));
   const tokens = task.tokens;
   const fields = [
-    ['项目', task.project], ['模型 / 推理', [task.model || task.provider, task.reasoningEffort].filter(Boolean).join(' · ')],
-    ['运行模式', task.runtimeMode], ['Git 分支', task.gitBranch], ['工作目录', task.cwd], ['Worktree', task.worktreePath], ['关联 PR', task.linkedPrUrl],
-  ].filter((pair): pair is [string, string] => Boolean(pair[1]));
+    ['项目', task.project, false],
+    ['模型 / 推理', [task.model || task.provider, task.reasoningEffort].filter(Boolean).join(' · '), false],
+    ['运行模式', task.runtimeMode, false],
+    ['Git 分支', task.gitBranch, false],
+    ['工作目录', task.cwd, true],
+    ['Worktree', task.worktreePath, true],
+    ['关联 PR', task.linkedPrUrl, true],
+  ].filter((entry): entry is [string, string, boolean] => Boolean(entry[1]));
   const workspace = task.cwd || task.worktreePath;
   return <div className="widget-scroll padded inspector">
     <div className="between inspect-meta"><div className="inline-group"><StatusBadge status={task.status} /><SourceBadge source={task.source} /></div>
@@ -51,7 +56,7 @@ export function InspectorWidget({ task, pinned, onPin, onFollow, t3Url, generate
         {pinned ? <Pin size={12} /> : <Radar size={13} />}{pinned ? '已固定' : '跟随最新'}</button></div>
     <h3 className="inspect-title">{task.title}</h3>
     {task.errorMessage && <p className="error-snippet">{task.errorMessage}</p>}
-    <dl className="inspector-fields">{fields.map(([key, value]) => <div key={key}><dt>{key}</dt><dd title={value}>{value}</dd></div>)}</dl>
+    <dl className="inspector-fields">{fields.map(([key, value, wide]) => <div key={key} className={wide ? 'field-wide' : undefined}><dt>{key}</dt><dd title={value}>{value}</dd></div>)}</dl>
     <div className="inspect-actions">
       {workspace && <OpenAction action="open-folder" target={workspace} icon={FolderOpen}>打开工作区</OpenAction>}
       {task.linkedPrUrl && <OpenAction action="open-url" target={task.linkedPrUrl} icon={GitPullRequest}>打开 PR</OpenAction>}
