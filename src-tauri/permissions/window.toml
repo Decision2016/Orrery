@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "window-controls"
+description = "Read displays and apply the dashboard's monitor, stacking and tool-window preferences."
+commands.allow = [
+  "get_window_prefs",
+  "list_monitors",
+  "snap_to_monitor",
+  "set_pin_across_desktops",
+  "set_always_on_top",
+  "set_cover_taskbar",
+]

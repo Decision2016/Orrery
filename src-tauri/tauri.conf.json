@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Orrery",
+  "version": "1.0.0",
+  "identifier": "dev.orrery.observatory",
+  "build": {
+    "frontendDist": "../packages/web/dist",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run dev:web",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Orrery",
+        "create": false,
+        "decorations": false,
+        "resizable": true,
+        "visible": false,
+        "focus": false,
+        "backgroundColor": "#070b14",
+        "skipTaskbar": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
+    "resources": {
+      "../packages/server/dist/": "resources/server/dist/",
+      "../packages/server/package.json": "resources/server/package.json",
+      "../packages/shared/dist/": "resources/node_modules/@orrery/shared/dist/",
+      "../packages/shared/package.json": "resources/node_modules/@orrery/shared/package.json",
+      "../packages/web/dist/": "resources/web/dist/"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "target/orrery-runtime/": "resources/runtime/"
+    }
+  }
+}
