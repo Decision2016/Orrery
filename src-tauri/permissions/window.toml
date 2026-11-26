@@ -8,4 +8,6 @@ commands.allow = [
   "set_pin_across_desktops",
   "set_always_on_top",
   "set_cover_taskbar",
+  "hide_window",
+  "quit_app",
 ]

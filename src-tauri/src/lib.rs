@@ -185,6 +185,17 @@ fn set_cover_taskbar(app: AppHandle, enabled: bool) -> Result<(), String> {
     change_prefs(&app, |p| p.cover_taskbar = enabled).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn hide_window(app: AppHandle) -> Result<(), String> {
+    let window = main_window(&app).map_err(|e| e.to_string())?;
+    window.hide().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 fn tray_action(app: &AppHandle, id: &str) -> DesktopResult<()> {
     match id {
         "show" => {
@@ -290,7 +301,9 @@ pub fn run() {
             snap_to_monitor,
             set_pin_across_desktops,
             set_always_on_top,
-            set_cover_taskbar
+            set_cover_taskbar,
+            hide_window,
+            quit_app
         ])
         .setup(|app| {
             if let Err(error) = setup(app) {

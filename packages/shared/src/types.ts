@@ -58,9 +58,28 @@ export interface QuotaWindow {
   windowId: string;
   label: string;
   usedPercent: number;
+  remainingPercent?: number;
+  windowDurationMins?: number;
+  planType?: string;
+  sourceMode?: 'official-cache' | 'passive-log' | 'local-only';
   resetsAt?: string;
   checkedAt?: string;
   unavailableReason?: string;
+}
+
+export interface ModelUsageEntry {
+  model: string;
+  providerId: string;
+  providerName: string;
+  todayTokens: number;
+  tokens24h: number;
+  inputTokens24h: number;
+  cachedTokens24h: number;
+  outputTokens24h: number;
+  calls24h: number;
+  sessions24h: number;
+  lastUsedAt?: string;
+  quotaWindowId?: string;
 }
 
 export interface HostMetrics {
@@ -225,6 +244,7 @@ export interface OrrerySnapshot {
   summary: SnapshotSummary;
   agents: AgentRuntime[];
   quotas: QuotaWindow[];
+  modelUsage: ModelUsageEntry[];
   host: HostMetrics;
   alerts: AttentionAlert[];
   tasks: TaskItem[];
@@ -238,6 +258,7 @@ export interface OrrerySnapshot {
 export type WidgetType =
   | 'agents'
   | 'quota-host'
+  | 'model-usage'
   | 'attention'
   | 'active-tasks'
   | 'timeline'

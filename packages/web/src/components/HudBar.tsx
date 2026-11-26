@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, GitFork, Hash, Hourglass, LayoutGrid, ListOrdered, LockKeyhole, Minimize, Moon, PencilRuler, Play, Plus, RotateCcw, Search, Sun, Trash2, Type, X } from 'lucide-react';
+import { Bell, BellOff, Check, ChevronDown, CircleAlert, CopyPlus, Expand, EyeOff, GitFork, Hash, Hourglass, LayoutGrid, ListOrdered, LockKeyhole, Minimize, Moon, PencilRuler, Play, Plus, Power, RotateCcw, Search, Sun, Trash2, Type, X } from 'lucide-react';
 import type { SnapshotSummary } from '@orrery/shared';
 import type { ConnectionState } from '../hooks/useOrreryStream';
 import type { useLayouts } from '../hooks/useLayouts';
 import { useNow } from '../hooks/useNow';
+import { hideDesktopWindow, quitOrreryProcess } from '../lib/api';
 import { formatClock, formatTokens } from '../lib/format';
 import { Dialog } from './Telemetry';
 
@@ -51,8 +52,10 @@ interface HudProps {
 export function HudBar({ summary, connection, layouts, filter, onFilter, query, onQuery, editing, onEdit, onDrawer, notifications, onNotifications, textScale, onTextScale, theme, onToggleTheme, onNotice }: HudProps) {
   const themeAction = theme === 'dark' ? '切换浅色模式' : '切换深色模式';
   const search = useRef<HTMLInputElement>(null);
-  const [modal, setModal] = useState<'save' | 'delete' | null>(null);
+  const [modal, setModal] = useState<'save' | 'delete' | 'quit' | null>(null);
+  const [quitting, setQuitting] = useState(false);
   const [name, setName] = useState('');
+  const isDesktop = Boolean(window.__TAURI_INTERNALS__);
   const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement));
   useEffect(() => {
     const resize = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -124,13 +127,30 @@ export function HudBar({ summary, connection, layouts, filter, onFilter, query, 
         try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
         catch { onNotice('此窗口无法切换全屏'); }
       }}>{fullscreen ? <Minimize size={15} /> : <Expand size={15} />}</button>
+      <button className="icon-button tone-rose" aria-label="关闭进程" title="关闭 Orrery 进程或隐藏到托盘" onClick={() => setModal('quit')}>
+        <Power size={15} />
+      </button>
     </div>
     <SignalClock connection={connection} />
-    {modal && <Dialog title={modal === 'save' ? '另存布局预设' : '删除布局预设'} onClose={() => setModal(null)}>
+    {modal && <Dialog title={modal === 'save' ? '另存布局预设' : modal === 'delete' ? '删除布局预设' : '关闭 Orrery 进程'} onClose={() => { if (!quitting) setModal(null); }}>
       {modal === 'save' ? <form className="dialog-form" onSubmit={e => { e.preventDefault(); if (name.trim()) { layouts.saveAsNewPreset(name); setModal(null); } }}>
         <label>预设名称<input autoFocus required maxLength={80} value={name} onChange={e => setName(e.target.value)} placeholder="输入预设名称" /></label>
         <button className="primary-button" disabled={!name.trim()}><Check size={14} />保存预设</button>
-      </form> : <div className="dialog-form"><p>删除「{layouts.activePreset.name}」？</p><button className="action-button tone-rose" onClick={() => { layouts.deletePreset(layouts.activePreset.id); setModal(null); }}>删除预设</button></div>}
+      </form> : modal === 'delete' ? <div className="dialog-form"><p>删除「{layouts.activePreset.name}」？</p><button className="action-button tone-rose" onClick={() => { layouts.deletePreset(layouts.activePreset.id); setModal(null); }}>删除预设</button></div>
+      : <div className="dialog-form">
+        <p className="muted">选择隐藏窗口到系统托盘，或彻底关闭 Orrery 及后台采集服务进程。</p>
+        <div className="action-wrap">
+          {isDesktop && <button className="action-button" disabled={quitting} onClick={async () => {
+            try { await hideDesktopWindow(); setModal(null); }
+            catch (error) { onNotice(error instanceof Error ? error.message : '隐藏窗口失败'); }
+          }}><EyeOff size={14} />隐藏到托盘</button>}
+          <button className="action-button tone-rose" disabled={quitting} onClick={async () => {
+            setQuitting(true);
+            try { await quitOrreryProcess(); }
+            catch (error) { setQuitting(false); setModal(null); onNotice(error instanceof Error ? error.message : '关闭进程失败'); }
+          }}><Power size={14} />{quitting ? '正在关闭…' : '彻底关闭进程'}</button>
+        </div>
+      </div>}
     </Dialog>}
   </header>;
 }

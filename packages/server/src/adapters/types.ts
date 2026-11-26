@@ -3,6 +3,7 @@ import type {
   AttentionAlert,
   EventEntry,
   HostMetrics,
+  ModelUsageEntry,
   ProcessMetric,
   QuotaWindow,
   ScheduledItem,
@@ -17,6 +18,7 @@ export interface CollectorOutput {
   error?: string;
   agents: AgentRuntime[];
   quotas: QuotaWindow[];
+  modelUsage?: ModelUsageEntry[];
   tasks: TaskItem[];
   alerts: AttentionAlert[];
   scheduled: ScheduledItem[];

@@ -623,6 +623,18 @@ button.event-row:hover { background: var(--hover); }
 .orrery-deck[data-text-scale="large"] .gantt-bar,
 .orrery-deck[data-text-scale="xlarge"] .gantt-bar { height: calc(18px * var(--s)); }
 
+.agent-processes { margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--soft-line); }
+.proc-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); padding: 1px 2px; }
+.proc-toggle:hover { color: var(--text); }
+.proc-list { list-style: none; padding: 4px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.proc-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--soft-line); background: var(--surface); }
+.proc-info { min-width: 0; display: flex; flex-direction: column; }
+.proc-name { font-size: 11px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proc-info small { font-size: 10px; color: var(--dim); }
+.proc-kill { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+.proc-kill:hover { color: var(--rose); border-color: var(--rose); }
+.proc-kill.is-confirm { color: var(--rose); border-color: var(--rose); background: color-mix(in srgb, var(--rose) 14%, transparent); font-weight: 600; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

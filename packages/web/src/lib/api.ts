@@ -26,6 +26,39 @@ export async function openTarget(action: 'open-folder' | 'open-url', target: str
   }
 }
 
+export async function hideDesktopWindow() {
+  if (window.__TAURI_INTERNALS__) {
+    await window.__TAURI_INTERNALS__.invoke('hide_window');
+  }
+}
+
+export async function quitOrreryProcess() {
+  if (window.__TAURI_INTERNALS__) {
+    await window.__TAURI_INTERNALS__.invoke('quit_app');
+    return;
+  }
+  const response = await fetch(apiPath('actions/shutdown'), { method: 'POST' });
+  if (!response.ok) {
+    const result: unknown = await response.json().catch(() => null);
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
+    throw new Error('关闭失败 · ' + message);
+  }
+  window.setTimeout(() => window.close(), 150);
+}
+
+export async function killAgentProcess(pid: number) {
+  const response = await fetch(apiPath('actions/kill-process'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid }),
+  });
+  if (!response.ok) {
+    const result: unknown = await response.json().catch(() => null);
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
+    throw new Error('结束进程失败 · ' + message);
+  }
+}
+
 export async function requestAlerts() {
   const native = window.__TAURI_INTERNALS__;
   if (native) {

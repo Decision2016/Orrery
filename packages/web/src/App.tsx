@@ -113,7 +113,7 @@ export default function App() {
   function renderWidget(type: WidgetType) {
     if (!snapshot) return <EmptyState icon={widgetIcons[type]}>{connection === 'offline' ? '本地观测服务离线' : '等待遥测快照'}</EmptyState>;
     switch (type) {
-      case 'agents': return <AgentsWidget agents={snapshot.agents} />;
+      case 'agents': return <AgentsWidget agents={snapshot.agents} processes={snapshot.processes} onNotice={setNotice} />;
       case 'quota-host': return <QuotaHostWidget quotas={snapshot.quotas} host={snapshot.host} />;
       case 'model-usage': return <ModelUsageWidget quotas={snapshot.quotas} modelUsage={modelUsage} />;
       case 'attention': return <AttentionWidget alerts={view.alerts} total={snapshot.alerts.length} onSelect={selectTask} connected={connection === 'connected'} />;

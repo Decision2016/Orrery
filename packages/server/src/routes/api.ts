@@ -83,10 +83,11 @@ async function launch(command: string, args: string[]) {
   child.unref();
 }
 
-export function createRequestHandler({ store, layoutStore, config }: {
+export function createRequestHandler({ store, layoutStore, config, onShutdown }: {
   store: Pick<OrreryStore, 'getHealth' | 'getSnapshot' | 'getTask' | 'subscribe'>;
   layoutStore: LayoutStore;
   config: Pick<OrreryConfig, 'webDistDir'>;
+  onShutdown?: () => void;
 }) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     try {
@@ -154,6 +155,31 @@ export function createRequestHandler({ store, layoutStore, config }: {
         }
         await launch('cmd.exe', ['/c', 'start', '', url.href]);
         return json(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && pathname === '/api/actions/shutdown') {
+        json(res, 200, { ok: true });
+        if (onShutdown) setTimeout(() => onShutdown(), 80).unref();
+        return;
+      }
+      if (req.method === 'POST' && pathname === '/api/actions/kill-process') {
+        const body = await readJson(req);
+        const pid = body && typeof body === 'object' && 'pid' in body ? Number(body.pid) : NaN;
+        if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+          throw new HttpError(400, 'Expected a valid monitored agent PID.');
+        }
+        const monitored = store.getSnapshot().processes.find(p => p.pid === pid);
+        if (!monitored) {
+          throw new HttpError(403, 'PID is not a currently monitored agent process.');
+        }
+        try {
+          process.kill(pid);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+            return json(res, 200, { ok: true, alreadyExited: true });
+          }
+          throw new HttpError(500, 'Failed to terminate process.');
+        }
+        return json(res, 200, { ok: true, pid });
       }
       throw new HttpError(404, 'Route not found.');
     } catch (error) {
