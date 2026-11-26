@@ -1,6 +1,6 @@
 {
   "name": "@orrery/web",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "preview": "vite preview --port 4173"
   },
   "dependencies": {
-    "@orrery/shared": "1.0.0",
+    "@orrery/shared": "0.0.1",
     "gridstack": "^12.1.2",
     "lucide-react": "^0.511.0",
     "react": "^19.1.0",

@@ -43,6 +43,6 @@ export function loadConfig(): OrreryConfig {
     layoutsFilePath: path.join(orreryDataDir, 'layouts.json'),
     appearanceFilePath: path.join(orreryDataDir, 'appearance.json'),
     webDistDir,
-    version: '1.0.0',
+    version: '0.0.1',
   };
 }

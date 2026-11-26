@@ -5,6 +5,7 @@ build/
 *.tsbuildinfo
 src-tauri/target/
 src-tauri/gen/
+release/
 .env
 .env.local
 *.log

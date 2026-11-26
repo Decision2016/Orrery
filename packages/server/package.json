@@ -1,6 +1,6 @@
 {
   "name": "@orrery/server",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
     "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
-    "@orrery/shared": "1.0.0"
+    "@orrery/shared": "0.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
