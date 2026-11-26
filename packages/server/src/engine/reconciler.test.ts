@@ -17,6 +17,7 @@ import { createRequestHandler } from '../routes/api.js';
 import { LayoutStore, LayoutValidationError } from './layouts.js';
 import { reconcileOutputs, type ReconcilerHistory } from './reconciler.js';
 import { OrreryStore } from './store.js';
+import { TodoStore, TodoValidationError } from './todos.js';
 
 const now = new Date(2026, 7, 10, 12).getTime();
 const at = (offset = 0) => new Date(now + offset).toISOString();
@@ -343,13 +344,20 @@ test('HTTP API, streaming, local actions, and static wallboard routes', { timeou
   await mkdir(webDistDir);
   await writeFile(path.join(webDistDir, 'index.html'), '<main>Orrery</main>');
   await writeFile(path.join(webDistDir, 'app.js'), 'export default 42');
-  const config = { ...loadConfig(), webDistDir, layoutsFilePath: path.join(dir, 'data', 'layouts.json'), pollIntervalMs: 40 };
+  const config = {
+    ...loadConfig(),
+    webDistDir,
+    layoutsFilePath: path.join(dir, 'data', 'layouts.json'),
+    todosFilePath: path.join(dir, 'data', 'todos.json'),
+    pollIntervalMs: 40,
+  };
   const archived = Array.from({ length: 85 }, (_, i) => task('detail:' + i, { status: 'completed', updatedAt: at(-i) }));
   const fixture: CollectorAdapter = { id: 'fixture', name: 'Fixture', intervalMs: 60_000,
     collect: async () => output('fixture', { tasks: archived }) };
-  const store = new OrreryStore([fixture], config);
+  const todoStore = new TodoStore(config);
+  const store = new OrreryStore([fixture], config, todoStore);
   await store.start();
-  const server = createServer(createRequestHandler({ store, layoutStore: new LayoutStore(config), config }));
+  const server = createServer(createRequestHandler({ store, layoutStore: new LayoutStore(config), todoStore, config }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {
@@ -475,5 +483,54 @@ test('HTTP API, streaming, local actions, and static wallboard routes', { timeou
     assert.deepEqual(launches, [['explorer.exe', [await realpath(webDistDir)], launchOptions],
       ['cmd.exe', ['/c', 'start', '', url], launchOptions]]);
     assert.equal(detached, 2);
+  });
+
+  await t.test('Todo API supports Agent upsert, status patching, batch sync, SSE updates, and direct file writes', async () => {
+    const initial = await (await fetch(base + '/api/todos')).json() as { items: unknown[]; filePath: string };
+    assert.deepEqual(initial.items, []);
+    assert.equal(initial.filePath, config.todosFilePath);
+
+    const createdRes = await fetch(base + '/api/todos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'agent-step-1', title: 'Write release notes', status: 'running', priority: 'p1', agent: 'Codex', description: 'v0.0.1' }),
+    });
+    assert.equal(createdRes.status, 201);
+    const created = await createdRes.json() as { created: boolean; item: { id: string; status: string; priority: string; note?: string } };
+    assert.equal(created.created, true);
+    assert.deepEqual([created.item.id, created.item.status, created.item.priority, created.item.note], ['agent-step-1', 'in_progress', 'high', 'v0.0.1']);
+    assert.equal(store.getSnapshot().todos[0]?.id, 'agent-step-1');
+
+    const patchedRes = await fetch(base + '/api/todos/agent-step-1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'done' }),
+    });
+    assert.equal(patchedRes.status, 200);
+    const patched = await patchedRes.json() as { item: { status: string; completedAt?: string } };
+    assert.equal(patched.item.status, 'done');
+    assert.ok(patched.item.completedAt);
+
+    assert.equal((await fetch(base + '/api/todos/missing', { method: 'PATCH', body: '{}' })).status, 404);
+    assert.equal((await fetch(base + '/api/todos', { method: 'POST', body: '{"title":""}' })).status, 400);
+
+    const batchRes = await fetch(base + '/api/todos', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ id: 't-done', title: 'Done item', status: 'done' }, { id: 't-active', title: 'Active item', status: 'in_progress', priority: 'critical' }]),
+    });
+    assert.equal(batchRes.status, 200);
+    const batch = await batchRes.json() as { items: { id: string }[] };
+    assert.deepEqual(batch.items.map(i => i.id), ['t-active', 't-done']);
+
+    const cleared = await (await fetch(base + '/api/todos', { method: 'DELETE' })).json() as { removed: number; items: { id: string }[] };
+    assert.equal(cleared.removed, 1);
+    assert.deepEqual(cleared.items.map(i => i.id), ['t-active']);
+
+    await writeFile(config.todosFilePath, JSON.stringify([{ title: 'Direct file todo', status: 'pending', agent: 'Antigravity' }]));
+    await new Promise(resolve => setTimeout(resolve, 110));
+    assert.equal(store.getSnapshot().todos[0]?.title, 'Direct file todo');
+
+    await assert.rejects(todoStore.upsert({ title: 'Bad', status: 'unknown' }), TodoValidationError);
   });
 });

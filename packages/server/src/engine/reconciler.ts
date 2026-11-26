@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   AgentRuntime, AttentionAlert, EventEntry, ModelUsageEntry, OrrerySnapshot, SubagentNode, TaskItem, TaskStatus,
-  TimelineSegment, TokenRatePoint,
+  TimelineSegment, TodoItem, TokenRatePoint,
 } from '@orrery/shared';
 import type { CollectorOutput } from '../adapters/types.js';
 
@@ -334,8 +334,8 @@ function updateTokens(
 
 export function reconcileOutputs(
   outputs: CollectorOutput[],
-  { nowMs = Date.now(), staleThresholdMs, serverVersion, history = {} }: {
-    nowMs?: number; staleThresholdMs: number; serverVersion: string; history?: ReconcilerHistory;
+  { nowMs = Date.now(), staleThresholdMs, serverVersion, history = {}, todos = [] }: {
+    nowMs?: number; staleThresholdMs: number; serverVersion: string; history?: ReconcilerHistory; todos?: TodoItem[];
   },
 ): OrrerySnapshot {
   const now = new Date(nowMs).toISOString();
@@ -414,7 +414,7 @@ export function reconcileOutputs(
   history.tasksById = taskById;
   for (const [alias, id] of aliases) taskById.set(alias, taskById.get(id)!);
   return {
-    generatedAt: now, serverVersion, agents, processes, tasks: tasks.slice(0, 80), events, alerts, timeline, scheduled, tokenHistory,
+    generatedAt: now, serverVersion, agents, processes, tasks: tasks.slice(0, 80), events, alerts, timeline, scheduled, todos, tokenHistory,
     summary: {
       runningCount, waitingCount: tasks.filter(task => isWaiting(task.status)).length,
       queuedCount: queuedTasks.length + queuedItems.length,

@@ -1,7 +1,8 @@
-import type { OrrerySnapshot } from '@orrery/shared';
+import type { OrrerySnapshot, TodoItem } from '@orrery/shared';
 import type { CollectorAdapter, CollectorOutput } from '../adapters/types.js';
 import type { OrreryConfig } from '../config.js';
 import { latestEvents, reconcileOutputs, type ReconcilerHistory } from './reconciler.js';
+import type { TodoStore } from './todos.js';
 
 interface CollectorHealth {
   id: string;
@@ -23,10 +24,16 @@ export class OrreryStore {
   private timers: NodeJS.Timeout[] = [];
   private startup?: Promise<void>;
   private shutdown?: Promise<void>;
+  private todos: TodoItem[] = [];
   private snapshot: OrrerySnapshot;
 
-  constructor(private readonly adapters: CollectorAdapter[], private readonly config: OrreryConfig) {
+  constructor(
+    private readonly adapters: CollectorAdapter[],
+    private readonly config: OrreryConfig,
+    private readonly todoStore?: TodoStore,
+  ) {
     this.collectors = adapters.map(({ id, name, intervalMs }) => ({ id, name, intervalMs, ok: false }));
+    this.todoStore?.setOnChange(items => this.setTodos(items));
     this.snapshot = reconcileOutputs([], { staleThresholdMs: config.staleThresholdMs, serverVersion: config.version });
   }
 
@@ -50,14 +57,49 @@ export class OrreryStore {
     return () => this.listeners.delete(listener);
   }
 
+  setTodos(items: TodoItem[]) {
+    this.todos = items;
+    const prevMs = Date.parse(this.snapshot.generatedAt) || 0;
+    const generatedAt = new Date(Math.max(Date.now(), prevMs + 1)).toISOString();
+    this.snapshot = { ...this.snapshot, generatedAt, todos: items };
+    this.listeners.forEach((_, listener) => listener(this.snapshot));
+  }
+
+  private pollTodos() {
+    if (!this.todoStore) return Promise.resolve();
+    const pending = this.inFlight.get('__todos__');
+    if (pending) return pending;
+    const run = (async () => {
+      try {
+        const next = await this.todoStore!.list();
+        if (next !== this.todos) {
+          const prevJson = JSON.stringify(this.todos);
+          if (JSON.stringify(next) !== prevJson) {
+            this.setTodos(next);
+          } else {
+            this.todos = next;
+          }
+        }
+      } catch {
+        // Ignore transient file access errors during external writes.
+      }
+    })().finally(() => this.inFlight.delete('__todos__'));
+    this.inFlight.set('__todos__', run);
+    return run;
+  }
+
   private tick() {
     const outputs = this.adapters.flatMap(adapter => {
       const output = this.outputs.get(adapter.id);
       return output ? [output] : [];
     });
-    this.snapshot = reconcileOutputs(outputs, {
-      staleThresholdMs: this.config.staleThresholdMs, serverVersion: this.config.version, history: this.history,
+    const next = reconcileOutputs(outputs, {
+      staleThresholdMs: this.config.staleThresholdMs, serverVersion: this.config.version, history: this.history, todos: this.todos,
     });
+    const prevMs = Date.parse(this.snapshot.generatedAt) || 0;
+    this.snapshot = Date.parse(next.generatedAt) >= prevMs
+      ? next
+      : { ...next, generatedAt: new Date(prevMs).toISOString() };
     this.listeners.forEach((_, listener) => listener(this.snapshot));
   }
 
@@ -99,6 +141,10 @@ export class OrreryStore {
       this.timers.push(setInterval(poll, adapter.intervalMs));
       return poll();
     });
+    if (this.todoStore) {
+      initial.push(this.pollTodos());
+      this.timers.push(setInterval(() => { void this.pollTodos(); }, this.config.pollIntervalMs));
+    }
     this.timers.push(setInterval(() => this.tick(), this.config.pollIntervalMs));
     this.startup = Promise.all(initial).then(() => { if (this.timers.length) this.tick(); });
     return this.startup;

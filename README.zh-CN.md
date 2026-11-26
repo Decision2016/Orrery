@@ -29,7 +29,8 @@ Orrery 提供基于 Tauri v2 的**单程序一体化 Windows 桌面版（`Orrery
 - **零侵入只读采集**：基于 Node 24 原生 `node:sqlite` 以只读模式接入 T3 Code / Codex WAL 数据库，按字节偏移增量尾读 Codex `rollout-*.jsonl` 与 Antigravity `transcript.jsonl`，不锁库、不伪造任何上游 API 探针。
 - **跨源去重合并（`T3 → Codex`）**：通过原生线程 ID 自动关联 T3 Code 拉起的 Codex 会话并合并为单条任务，同时保留 T3 的审批/项目/子代理树与 Codex 的细粒度工具及 Token 遥测。
 - **各模型用量与剩余额度专栏**：聚合 Antigravity、Codex、Claude/DeepSeek 等模型 24h / 今日用量（输入、缓存读取、输出、缓存命中率、调用次数），结合 Codex 被动落盘的剩余额度与重置倒计时，支持自定义 API 识别与卡片显示开关。
-- **24×10 GridStack.js 自由编排**：支持锁定/编辑双模式、自由拖拽缩放与增删 10 个监控组件（各模型用量与剩余量、运行中任务、焦点任务与拓扑、Agent 实例、待人工介入、并发泳道时间线、队列与定时、实时事件流、Token 速率图、配额与主机资源），支持保存多套自定义预设。
+- **24×10 GridStack.js 自由编排**：支持锁定/编辑双模式、自由拖拽缩放与增删 11 个监控组件（各模型用量与剩余量、运行中任务、焦点任务与拓扑、Agent 实例、待人工介入、并发泳道时间线、队列与定时、Agent 待办清单、实时事件流、Token 速率图、配额与主机资源），支持保存多套自定义预设。
+- **Agent 可写入待办清单（TODO LIST）**：与 `QUEUE & CRON` 保持一致的高可读行布局，支持本地任意 Agent 通过 `http://127.0.0.1:4318/api/todos`、直写 `~/.orrery/todos.json` 或调用 `node scripts/orrery-todo.mjs` 实时同步任务待办与完成状态，并内置一键复制 Agent 接入说明。
 - **14.1 寸 3840×1100 副屏深度适配**：零主滚动视口锁定 + `ResizeObserver` 动态行高（完美兼容 100% / 125% / 150% / 175% 缩放），内置三档字号切换（`标准字号` / `14.1" 大字` / `远距超大`）与 Dark / Light 双主题切换。
 - **自定义背景与界面毛玻璃透明度**：支持纯色默认、4 款内置广角壁纸或上传本地高清图片（≤ 25 MB，存盘于 `~/.orrery/`），支持实时调节面板不透明度、顶栏不透明度、毛玻璃模糊强度与背景遮罩浓度。
 - **指定副屏锁定与跨虚拟桌面常驻（Windows）**：启动自动无边框真全屏贴合 `3840×1100` 副屏，按 Win32 显示器设备 ID 持久化记忆目标屏，并通过公开 Win32 `WS_EX_TOOLWINDOW` 机制在 Windows 10/11 切换多虚拟桌面（`Win + Ctrl + ← / →`）时保持固定显示。
@@ -82,6 +83,7 @@ npm run build
 
 - `layouts.json` — 自定义 GridStack 预设与组件坐标
 - `appearance.json` 与 `wallpaper.<ext>` — 自定义背景图与界面毛玻璃透明度设置
+- `todos.json` — Agent 可读写的待办清单文件（每秒自动热加载，亦可通过 `POST / PATCH / PUT http://127.0.0.1:4318/api/todos` 或 `node scripts/orrery-todo.mjs` 实时操作）
 - `window.json` — 副屏锁定与跨虚拟桌面配置：
 
 ```jsonc
@@ -104,7 +106,7 @@ npm run build
 ```powershell
 npm ci
 npm run build     # 构建 @orrery/shared、@orrery/server 与 @orrery/web
-npm test          # 运行全部 30 项服务端、适配器、去重与 API 测试
+npm test          # 运行全部 31 项服务端、适配器、去重与 API 测试
 ```
 
 构建 Windows 单程序与 NSIS 安装包（自动准备内嵌 Node 运行时）：

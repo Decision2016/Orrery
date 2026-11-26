@@ -20,6 +20,7 @@ import { ActiveTasksWidget } from './components/widgets/ActiveTasksWidget';
 import { TimelineWidget } from './components/widgets/TimelineWidget';
 import { InspectorWidget } from './components/widgets/InspectorWidget';
 import { QueueCronWidget } from './components/widgets/QueueCronWidget';
+import { TodoListWidget } from './components/widgets/TodoListWidget';
 import { EventStreamWidget } from './components/widgets/EventStreamWidget';
 import { TokenChartWidget } from './components/widgets/TokenChartWidget';
 
@@ -98,7 +99,17 @@ export default function App() {
     const events = (snapshot?.events ?? []).filter(e => related(e.source, e.taskId) && ((e.taskId && matchingIds.has(e.taskId)) || contains(e.summary, e.taskTitle, e.detail, sourceNames[e.source])))
       .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
     const scheduled = (snapshot?.scheduled ?? []).filter(s => (filter === 'all' || filter === s.source) && contains(s.title, s.scheduleText, s.model, s.cwd));
-    return { tasks, alerts, timeline, events, scheduled };
+    const matchesTodoAgent = (agent?: string) => {
+      if (filter === 'all') return true;
+      const lower = (agent ?? '').toLowerCase();
+      if (filter === 't3') return lower.includes('t3');
+      if (filter === 'codex') return lower.includes('codex');
+      if (filter === 'merged') return lower.includes('t3') && lower.includes('codex');
+      return true;
+    };
+    const todos = (snapshot?.todos ?? []).filter(item => matchesTodoAgent(item.agent)
+      && contains(item.title, item.note, item.agent, item.project, item.cwd, item.id));
+    return { tasks, alerts, timeline, events, scheduled, todos };
   }, [snapshot, byId, filter, search]);
 
   const selected = selectedId ? localTask ?? (detail?.id === selectedId ? detail : undefined) : view.tasks.find(t => isActive(t.status)) ?? view.tasks[0];
@@ -106,12 +117,14 @@ export default function App() {
     generatedAt={snapshot?.generatedAt ?? ''} t3Url={snapshot?.agents.find(a => /t3/i.test(a.id + ' ' + a.name) && a.endpointUrl)?.endpointUrl} />;
   const count = (n: number) => snapshot ? String(n).padStart(2, '0') : '—';
   const modelUsage = snapshot?.modelUsage ?? [];
+  const openTodos = view.todos.filter(t => t.status !== 'done').length;
   const badges: Record<WidgetType, string> = {
     agents: snapshot ? `${snapshot.agents.filter(a => a.status === 'online').length}/${snapshot.agents.length} ONLINE` : '—',
     'quota-host': snapshot ? `${snapshot.quotas.length} WINDOWS` : '—',
     'model-usage': snapshot ? `${modelUsage.length} MODELS` : '—',
     attention: count(view.alerts.length), 'active-tasks': count(view.tasks.length), timeline: count(view.timeline.length),
-    inspector: selected ? (selectedId ? 'PINNED' : 'AUTO') : '—', 'queue-cron': count(view.scheduled.length), 'event-stream': count(view.events.length),
+    inspector: selected ? (selectedId ? 'PINNED' : 'AUTO') : '—', 'queue-cron': count(view.scheduled.length),
+    'todo-list': snapshot ? `${openTodos}/${view.todos.length} OPEN` : '—', 'event-stream': count(view.events.length),
     'token-chart': snapshot ? `${snapshot.tokenHistory.length} SAMPLES` : '—',
   };
   function renderWidget(type: WidgetType) {
@@ -125,6 +138,7 @@ export default function App() {
       case 'timeline': return <TimelineWidget segments={view.timeline} selectedId={selected?.id} onSelect={selectTask} />;
       case 'inspector': return inspector;
       case 'queue-cron': return <QueueCronWidget scheduled={view.scheduled} />;
+      case 'todo-list': return <TodoListWidget todos={view.todos} onNotice={setNotice} />;
       case 'event-stream': return <EventStreamWidget events={view.events} onSelect={selectTask} />;
       case 'token-chart': return <TokenChartWidget history={snapshot.tokenHistory} />;
     }

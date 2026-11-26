@@ -1,4 +1,4 @@
-import type { AttentionAlert } from '@orrery/shared';
+import type { AttentionAlert, TodoItem, TodoPriority, TodoStatus } from '@orrery/shared';
 
 declare global {
   interface Window {
@@ -57,6 +57,62 @@ export async function killAgentProcess(pid: number) {
     const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
     throw new Error('结束进程失败 · ' + message);
   }
+}
+
+export async function createTodo(input: {
+  id?: string;
+  title: string;
+  status?: TodoStatus;
+  priority?: TodoPriority;
+  agent?: string;
+  project?: string;
+  cwd?: string;
+  note?: string;
+}): Promise<TodoItem> {
+  const response = await fetch(apiPath('todos'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const result: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
+    throw new Error('保存待办失败 · ' + message);
+  }
+  return (result as { item: TodoItem }).item;
+}
+
+export async function updateTodo(id: string, patch: Partial<Pick<TodoItem, 'title' | 'status' | 'priority' | 'agent' | 'project' | 'cwd' | 'note'>>): Promise<TodoItem> {
+  const response = await fetch(apiPath('todos/' + encodeURIComponent(id)), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const result: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
+    throw new Error('更新待办失败 · ' + message);
+  }
+  return (result as { item: TodoItem }).item;
+}
+
+export async function deleteTodo(id: string): Promise<void> {
+  const response = await fetch(apiPath('todos/' + encodeURIComponent(id)), { method: 'DELETE' });
+  if (!response.ok) {
+    const result: unknown = await response.json().catch(() => null);
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
+    throw new Error('删除待办失败 · ' + message);
+  }
+}
+
+export async function clearCompletedTodos(): Promise<number> {
+  const response = await fetch(apiPath('todos'), { method: 'DELETE' });
+  const result: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
+    throw new Error('清理待办失败 · ' + message);
+  }
+  return result && typeof result === 'object' && 'removed' in result && typeof result.removed === 'number' ? result.removed : 0;
 }
 
 export async function requestAlerts() {

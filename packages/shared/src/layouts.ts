@@ -84,6 +84,16 @@ export const WIDGET_CATALOG: Record<WidgetType, WidgetMeta> = {
     minW: 4,
     minH: 3,
   },
+  'todo-list': {
+    type: 'todo-list',
+    title: 'Agent 待办清单',
+    shortTitle: 'TODO LIST',
+    description: '支持本地 Agent 通过 HTTP API 或 ~/.orrery/todos.json 实时写入与更新的任务待办列表',
+    defaultW: 5,
+    defaultH: 5,
+    minW: 4,
+    minH: 3,
+  },
   'event-stream': {
     type: 'event-stream',
     title: '实时事件与告警流',

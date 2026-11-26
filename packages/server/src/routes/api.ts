@@ -7,6 +7,7 @@ import type { OrreryConfig } from '../config.js';
 import { AppearanceStore, AppearanceValidationError, MAX_WALLPAPER_BYTES } from '../engine/appearance.js';
 import { LayoutStore, LayoutValidationError } from '../engine/layouts.js';
 import type { OrreryStore } from '../engine/store.js';
+import { TodoNotFoundError, TodoStore, TodoValidationError } from '../engine/todos.js';
 
 const MAX_BODY = 1024 * 1024;
 const LOCAL_ORIGIN = /^(?:https?:\/\/(?:localhost|127\.0\.0\.1|tauri\.localhost)(?::\d{1,5})?|tauri:\/\/localhost)$/i;
@@ -89,14 +90,16 @@ async function launch(command: string, args: string[]) {
   child.unref();
 }
 
-export function createRequestHandler({ store, layoutStore, appearanceStore, config, onShutdown }: {
-  store: Pick<OrreryStore, 'getHealth' | 'getSnapshot' | 'getTask' | 'subscribe'>;
+export function createRequestHandler({ store, layoutStore, appearanceStore, todoStore, config, onShutdown }: {
+  store: Pick<OrreryStore, 'getHealth' | 'getSnapshot' | 'getTask' | 'subscribe'> & Partial<Pick<OrreryStore, 'setTodos'>>;
   layoutStore: LayoutStore;
   appearanceStore?: AppearanceStore;
-  config: Pick<OrreryConfig, 'webDistDir'> & Partial<Pick<OrreryConfig, 'appearanceFilePath'>>;
+  todoStore?: TodoStore;
+  config: Pick<OrreryConfig, 'webDistDir'> & Partial<Pick<OrreryConfig, 'appearanceFilePath' | 'todosFilePath'>>;
   onShutdown?: () => void;
 }) {
   const appearance = appearanceStore ?? (config.appearanceFilePath ? new AppearanceStore({ appearanceFilePath: config.appearanceFilePath }) : undefined);
+  const todos = todoStore ?? (config.todosFilePath ? new TodoStore({ todosFilePath: config.todosFilePath }, items => store.setTodos?.(items)) : undefined);
   return async (req: IncomingMessage, res: ServerResponse) => {
     try {
       res.setHeader('Vary', 'Origin');
@@ -106,16 +109,20 @@ export function createRequestHandler({ store, layoutStore, appearanceStore, conf
         res.setHeader('Access-Control-Allow-Origin', origin);
       }
       if (req.method === 'OPTIONS') {
-        res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Filename' });
+        res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, PUT, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Filename' });
         res.end();
         return;
       }
-      const pathname = decodeURIComponent((req.url ?? '/').split('?', 1)[0]);
+      const rawUrl = req.url ?? '/';
+      const qIndex = rawUrl.indexOf('?');
+      const pathname = decodeURIComponent(qIndex >= 0 ? rawUrl.slice(0, qIndex) : rawUrl);
+      const searchParams = new URLSearchParams(qIndex >= 0 ? rawUrl.slice(qIndex + 1) : '');
       if (pathname.includes('\0')) throw new HttpError(400, 'Invalid path.');
       if (req.method === 'GET') {
         if (pathname === '/api/health') return json(res, 200, store.getHealth());
         if (pathname === '/api/snapshot') return json(res, 200, store.getSnapshot());
         if (pathname === '/api/layouts') return json(res, 200, await layoutStore.load());
+        if (pathname === '/api/todos' && todos) return json(res, 200, await todos.payload());
         if (pathname === '/api/appearance' && appearance) return json(res, 200, await appearance.load());
         if (pathname === '/api/appearance/wallpaper' && appearance) {
           const wallpaper = await appearance.readWallpaper();
@@ -152,6 +159,34 @@ export function createRequestHandler({ store, layoutStore, appearanceStore, conf
         if (pathname !== '/api' && !pathname.startsWith('/api/')) return await serveStatic(res, config.webDistDir, pathname);
       }
       if (req.method === 'PUT' && pathname === '/api/layouts') return json(res, 200, await layoutStore.save(await readJson(req)));
+      if (todos) {
+        if (req.method === 'POST' && pathname === '/api/todos') {
+          const body = await readJson(req);
+          if (Array.isArray(body) || (body && typeof body === 'object' && ('items' in body || 'todos' in body))) {
+            const items = await todos.replaceAll(body, true);
+            return json(res, 200, { items, updatedAt: new Date().toISOString() });
+          }
+          const result = await todos.upsert(body);
+          return json(res, result.created ? 201 : 200, result);
+        }
+        if (req.method === 'PUT' && pathname === '/api/todos') {
+          const items = await todos.replaceAll(await readJson(req), searchParams.get('merge') === 'true');
+          return json(res, 200, { items, updatedAt: new Date().toISOString() });
+        }
+        if ((req.method === 'PATCH' || req.method === 'PUT') && pathname.startsWith('/api/todos/')) {
+          const id = pathname.slice('/api/todos/'.length);
+          return json(res, 200, await todos.patch(id, await readJson(req)));
+        }
+        if (req.method === 'DELETE' && pathname.startsWith('/api/todos/')) {
+          const id = pathname.slice('/api/todos/'.length);
+          const result = await todos.remove(id);
+          return json(res, 200, { ok: true, ...result });
+        }
+        if (req.method === 'DELETE' && pathname === '/api/todos') {
+          const result = await todos.clear(searchParams.get('all') === 'true');
+          return json(res, 200, { ok: true, ...result });
+        }
+      }
       if (req.method === 'PUT' && pathname === '/api/appearance' && appearance) {
         return json(res, 200, await appearance.save(await readJson(req)));
       }
@@ -219,7 +254,10 @@ export function createRequestHandler({ store, layoutStore, appearanceStore, conf
     } catch (error) {
       if (res.destroyed || res.writableEnded) return;
       if (error instanceof HttpError) return json(res, error.status, { error: error.message });
-      if (error instanceof LayoutValidationError || error instanceof AppearanceValidationError || error instanceof URIError) return json(res, 400, { error: error.message });
+      if (error instanceof TodoNotFoundError) return json(res, 404, { error: error.message });
+      if (error instanceof LayoutValidationError || error instanceof AppearanceValidationError || error instanceof TodoValidationError || error instanceof URIError) {
+        return json(res, 400, { error: error.message });
+      }
       if (missing(error)) return json(res, 404, { error: 'File not found.' });
       return json(res, 500, { error: 'Orrery could not complete the request.' });
     }

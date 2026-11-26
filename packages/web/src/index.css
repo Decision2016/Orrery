@@ -453,6 +453,21 @@ h1, h2, h3, h4, p, figure, ol, ul, dl, dt, dd { margin: 0; }
 .schedule-times b { font-weight: 500; }
 .error-snippet { font-size: 12px; color: var(--rose-ink); overflow-wrap: anywhere; }
 .schedule-row .error-snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.todo-compose { display: flex; flex-direction: column; gap: 6px; padding: 8px 11px; border-bottom: 1px solid var(--line); background: var(--surface); flex-shrink: 0; }
+.todo-compose-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.todo-compose input, .todo-compose select { height: 27px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--field); color: var(--text); font-size: 12px; }
+.todo-compose-main input { flex: 1 1 auto; min-width: 0; }
+.todo-compose-note { width: 100%; }
+.todo-compose .primary-button { height: 27px; padding: 0 10px; }
+.todo-row.is-done h3 { color: var(--dim); text-decoration: line-through; }
+.todo-row.is-done .schedule-rule { opacity: .72; }
+.todo-check { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; border-radius: 4px; flex: none; }
+.todo-check:hover:not(:disabled) { background: var(--hover); }
+.todo-pill-btn { padding: 1px 6px; border-radius: 3px; border: 1px solid transparent; }
+.todo-pill-btn:hover:not(:disabled) { border-color: color-mix(in srgb, currentColor 35%, var(--line)); background: var(--hover); }
+.todo-remove { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 3px; color: var(--dim); opacity: .65; }
+.todo-remove:hover:not(:disabled) { opacity: 1; color: var(--rose-ink); background: color-mix(in srgb, var(--rose) 12%, var(--panel)); }
+.todo-cwd { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .event-row { display: block; width: 100%; text-align: left; }
 button.event-row:hover { background: var(--hover); }
 .event-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
@@ -591,6 +606,14 @@ button.event-row:hover { background: var(--hover); }
 .orrery-deck[data-text-scale="xlarge"] .step-chain li,
 .orrery-deck[data-text-scale="large"] .schedule-rule,
 .orrery-deck[data-text-scale="xlarge"] .schedule-rule,
+.orrery-deck[data-text-scale="large"] .schedule-kind,
+.orrery-deck[data-text-scale="xlarge"] .schedule-kind,
+.orrery-deck[data-text-scale="large"] .state-pill,
+.orrery-deck[data-text-scale="xlarge"] .state-pill,
+.orrery-deck[data-text-scale="large"] .todo-compose input,
+.orrery-deck[data-text-scale="xlarge"] .todo-compose input,
+.orrery-deck[data-text-scale="large"] .todo-compose select,
+.orrery-deck[data-text-scale="xlarge"] .todo-compose select,
 .orrery-deck[data-text-scale="large"] .lane-label,
 .orrery-deck[data-text-scale="xlarge"] .lane-label,
 .orrery-deck[data-text-scale="large"] .segments button,
@@ -619,7 +642,9 @@ button.event-row:hover { background: var(--hover); }
 .orrery-deck[data-text-scale="large"] .tree-node small,
 .orrery-deck[data-text-scale="xlarge"] .tree-node small,
 .orrery-deck[data-text-scale="large"] .tree-step,
-.orrery-deck[data-text-scale="xlarge"] .tree-step { font-size: calc(11.5px * var(--s)); }
+.orrery-deck[data-text-scale="xlarge"] .tree-step,
+.orrery-deck[data-text-scale="large"] .schedule-times,
+.orrery-deck[data-text-scale="xlarge"] .schedule-times { font-size: calc(11.5px * var(--s)); }
 
 .orrery-deck[data-text-scale="large"] .task-title,
 .orrery-deck[data-text-scale="xlarge"] .task-title,
@@ -627,6 +652,8 @@ button.event-row:hover { background: var(--hover); }
 .orrery-deck[data-text-scale="xlarge"] .alert-title,
 .orrery-deck[data-text-scale="large"] .agent-identity h3,
 .orrery-deck[data-text-scale="xlarge"] .agent-identity h3,
+.orrery-deck[data-text-scale="large"] .schedule-row h3,
+.orrery-deck[data-text-scale="xlarge"] .schedule-row h3,
 .orrery-deck[data-text-scale="large"] .event-summary,
 .orrery-deck[data-text-scale="xlarge"] .event-summary { font-size: calc(15px * var(--s)); line-height: 1.38; }
 
@@ -723,6 +750,7 @@ button.event-row:hover { background: var(--hover); }
 .orrery-deck[data-has-bg="true"] .task-card,
 .orrery-deck[data-has-bg="true"] .quota-reading,
 .orrery-deck[data-has-bg="true"] .proc-row,
+.orrery-deck[data-has-bg="true"] .todo-compose,
 .orrery-deck[data-has-bg="true"] .hud-kpi {
   background: color-mix(in srgb, var(--surface) calc(min(1, var(--panel-opacity, 0.84) + 0.04) * 100%), transparent);
 }

@@ -228,6 +228,29 @@ export interface TokenRatePoint {
   activeTasks: number;
 }
 
+export type TodoStatus = 'pending' | 'in_progress' | 'blocked' | 'done';
+
+export type TodoPriority = 'low' | 'normal' | 'high' | 'critical';
+
+export interface TodoItem {
+  id: string;
+  title: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  agent?: string;
+  project?: string;
+  cwd?: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface TodosPayload {
+  updatedAt: string;
+  items: TodoItem[];
+}
+
 export interface SnapshotSummary {
   runningCount: number;
   waitingCount: number;
@@ -250,6 +273,7 @@ export interface OrrerySnapshot {
   tasks: TaskItem[];
   timeline: TimelineSegment[];
   scheduled: ScheduledItem[];
+  todos: TodoItem[];
   events: EventEntry[];
   tokenHistory: TokenRatePoint[];
   processes: ProcessMetric[];
@@ -264,6 +288,7 @@ export type WidgetType =
   | 'timeline'
   | 'inspector'
   | 'queue-cron'
+  | 'todo-list'
   | 'event-stream'
   | 'token-chart';
 

@@ -14,6 +14,7 @@ export interface OrreryConfig {
   orreryDataDir: string;
   layoutsFilePath: string;
   appearanceFilePath: string;
+  todosFilePath: string;
   webDistDir: string;
   version: string;
 }
@@ -42,6 +43,7 @@ export function loadConfig(): OrreryConfig {
     orreryDataDir,
     layoutsFilePath: path.join(orreryDataDir, 'layouts.json'),
     appearanceFilePath: path.join(orreryDataDir, 'appearance.json'),
+    todosFilePath: path.join(orreryDataDir, 'todos.json'),
     webDistDir,
     version: '0.0.1',
   };
