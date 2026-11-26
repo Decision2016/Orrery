@@ -493,6 +493,162 @@ button.event-row:hover { background: var(--hover); }
 .active-line { stroke: var(--violet); stroke-dasharray: 4 4; stroke-width: 1.5; }
 .token-line { stroke: var(--cyan); stroke-width: 2; }
 
+/* Codex-style 12-month Token Activity heatmap */
+.token-activity-widget {
+  --lv-0: rgba(148, 163, 184, 0.13);
+  --lv-1: #163a66;
+  --lv-2: #1f64b5;
+  --lv-3: #2589f5;
+  --lv-4: #79c4ff;
+}
+:root[data-theme="light"] .token-activity-widget {
+  --lv-0: #ebedf0;
+  --lv-1: #c6e2ff;
+  --lv-2: #68b5ff;
+  --lv-3: #0077ff;
+  --lv-4: #003e8a;
+}
+.token-activity-widget[data-ramp="emerald"] {
+  --lv-1: #0e3d2b;
+  --lv-2: #116949;
+  --lv-3: #10b981;
+  --lv-4: #6ee7b7;
+}
+:root[data-theme="light"] .token-activity-widget[data-ramp="emerald"] {
+  --lv-1: #c6f6d5;
+  --lv-2: #68d391;
+  --lv-3: #10b981;
+  --lv-4: #065f46;
+}
+.token-activity-widget[data-ramp="violet"] {
+  --lv-1: #2a245e;
+  --lv-2: #4b3fa8;
+  --lv-3: #7c6bf2;
+  --lv-4: #bdb2ff;
+}
+:root[data-theme="light"] .token-activity-widget[data-ramp="violet"] {
+  --lv-1: #e0dbff;
+  --lv-2: #a899ff;
+  --lv-3: #6c56f5;
+  --lv-4: #3a239c;
+}
+.token-activity-widget[data-ramp="amber"] {
+  --lv-1: #4a2a16;
+  --lv-2: #8a4b1f;
+  --lv-3: #d97724;
+  --lv-4: #fbbd7a;
+}
+:root[data-theme="light"] .token-activity-widget[data-ramp="amber"] {
+  --lv-1: #fde4cf;
+  --lv-2: #f6b27a;
+  --lv-3: #d96b1f;
+  --lv-4: #8a3a08;
+}
+.token-activity-widget[data-ramp="cyan"] {
+  --lv-1: #113d42;
+  --lv-2: #156e75;
+  --lv-3: #14b8a6;
+  --lv-4: #6ee7d8;
+}
+:root[data-theme="light"] .token-activity-widget[data-ramp="cyan"] {
+  --lv-1: #ccf3ee;
+  --lv-2: #6bdcd0;
+  --lv-3: #0d9488;
+  --lv-4: #0f524c;
+}
+.token-activity-widget[data-ramp="rose"] {
+  --lv-1: #4c1727;
+  --lv-2: #8f2242;
+  --lv-3: #f43f5e;
+  --lv-4: #fda4af;
+}
+:root[data-theme="light"] .token-activity-widget[data-ramp="rose"] {
+  --lv-1: #ffe0e6;
+  --lv-2: #fda4af;
+  --lv-3: #e11d48;
+  --lv-4: #881337;
+}
+.token-activity-widget[data-ramp="custom"] {
+  --lv-1: color-mix(in srgb, var(--activity-custom, #2589f5) 30%, var(--panel));
+  --lv-2: color-mix(in srgb, var(--activity-custom, #2589f5) 60%, var(--panel));
+  --lv-3: var(--activity-custom, #2589f5);
+  --lv-4: color-mix(in srgb, var(--activity-custom, #2589f5) 62%, #ffffff);
+}
+:root[data-theme="light"] .token-activity-widget[data-ramp="custom"] {
+  --lv-1: color-mix(in srgb, var(--activity-custom, #0077ff) 24%, #ffffff);
+  --lv-2: color-mix(in srgb, var(--activity-custom, #0077ff) 56%, #ffffff);
+  --lv-3: var(--activity-custom, #0077ff);
+  --lv-4: color-mix(in srgb, var(--activity-custom, #0077ff) 58%, #071326);
+}
+.token-activity-toolbar { flex-wrap: wrap; gap: 6px 10px; position: relative; z-index: 4; }
+.token-activity-summary { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; overflow: hidden; white-space: nowrap; }
+.token-activity-heading { font: 600 13px/1.2 var(--sans); color: var(--text); }
+.token-activity-kpi { font-size: 11.5px; color: var(--muted); }
+.token-activity-kpi b { color: var(--text); font-weight: 600; }
+.token-activity-hover-sub { font: 600 12px var(--mono); color: var(--cyan-ink); }
+.token-activity-summary small { overflow: hidden; text-overflow: ellipsis; }
+.token-activity-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.provider-dropdown { position: relative; }
+.provider-select-btn {
+  height: 25px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px;
+  border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 12px;
+}
+.provider-select-btn:hover { background: var(--hover); border-color: var(--line-strong); }
+.provider-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; min-width: 196px; padding: 4px;
+  display: flex; flex-direction: column; gap: 2px; border-radius: 6px; border: 1px solid var(--line-strong);
+  background: var(--panel); box-shadow: var(--float-shadow);
+}
+.provider-option {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 4px; font-size: 12px; color: var(--text); text-align: left;
+}
+.provider-option:hover { background: var(--hover); }
+.provider-option.is-selected { background: var(--selected-fill); color: var(--cyan-ink); }
+.provider-dot-all, .provider-dot-openai { color: #0077ff; }
+.provider-dot-gemini { color: #7c6bf2; }
+.provider-dot-claude { color: #e07a2b; }
+.provider-dot-deepseek, .provider-dot-opencode { color: #14b8a6; }
+.provider-dot-grok, .provider-dot-pi, .provider-dot-other { color: var(--cyan); }
+.activity-color-btn { padding: 0 7px; gap: 5px; }
+.activity-color-chip { width: 10px; height: 10px; border-radius: 3px; background: var(--lv-3); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .22); }
+.activity-color-menu { min-width: 218px; padding: 7px; gap: 7px; }
+.activity-color-grid { display: flex; flex-direction: column; gap: 2px; }
+.activity-swatch-option {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) 14px; align-items: center; gap: 8px;
+  padding: 4px 7px; border-radius: 4px; font-size: 12px; color: var(--text); text-align: left;
+}
+.activity-swatch-option:hover { background: var(--hover); }
+.activity-swatch-option.is-selected { background: var(--selected-fill); color: var(--cyan-ink); }
+.activity-swatch-dot { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.activity-custom-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 6px 2px; border-top: 1px solid var(--soft-line); font-size: 12px;
+}
+.activity-custom-picker { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; color: var(--text); }
+.activity-custom-picker input[type="color"] {
+  width: 22px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 4px;
+  background: transparent; cursor: pointer;
+}
+.activity-ramp-preview { display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 0 4px 2px; }
+.lv-chip { width: 11px; height: 11px; border-radius: 3px; display: inline-block; background: var(--lv-0); }
+.lv-chip.lv-1 { background: var(--lv-1); }
+.lv-chip.lv-2 { background: var(--lv-2); }
+.lv-chip.lv-3 { background: var(--lv-3); }
+.lv-chip.lv-4 { background: var(--lv-4); }
+.activity-sync-btn { width: 25px; height: 25px; }
+.spin { animation: orrery-spin 0.9s linear infinite; }
+@keyframes orrery-spin { to { transform: rotate(360deg); } }
+.token-activity-stage { flex: 1; min-height: 0; width: 100%; overflow: hidden; padding: 2px 6px 4px; display: flex; align-items: center; justify-content: center; }
+.token-activity-stage svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.activity-cell { fill: var(--lv-0); transition: opacity 0.12s ease, stroke 0.12s ease; }
+.activity-cell.lv-1 { fill: var(--lv-1); }
+.activity-cell.lv-2 { fill: var(--lv-2); }
+.activity-cell.lv-3 { fill: var(--lv-3); }
+.activity-cell.lv-4 { fill: var(--lv-4); }
+.activity-cell:hover { stroke: var(--text); stroke-width: 1.2; opacity: 0.92; }
+.activity-month-label { fill: var(--dim); font: 11px var(--sans); user-select: none; }
+
 /* In-place editing */
 .deck-dialog { position: fixed; inset: 0; margin: auto; width: min(390px, 94vw); max-height: min(82vh, 880px); padding: 0; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 7px; box-shadow: var(--float-shadow); }
 .deck-dialog[open] { display: flex; flex-direction: column; }
@@ -614,6 +770,14 @@ button.event-row:hover { background: var(--hover); }
 .orrery-deck[data-text-scale="xlarge"] .todo-compose input,
 .orrery-deck[data-text-scale="large"] .todo-compose select,
 .orrery-deck[data-text-scale="xlarge"] .todo-compose select,
+.orrery-deck[data-text-scale="large"] .provider-select-btn,
+.orrery-deck[data-text-scale="xlarge"] .provider-select-btn,
+.orrery-deck[data-text-scale="large"] .provider-option,
+.orrery-deck[data-text-scale="xlarge"] .provider-option,
+.orrery-deck[data-text-scale="large"] .token-activity-heading,
+.orrery-deck[data-text-scale="xlarge"] .token-activity-heading,
+.orrery-deck[data-text-scale="large"] .token-activity-kpi,
+.orrery-deck[data-text-scale="xlarge"] .token-activity-kpi,
 .orrery-deck[data-text-scale="large"] .lane-label,
 .orrery-deck[data-text-scale="xlarge"] .lane-label,
 .orrery-deck[data-text-scale="large"] .segments button,

@@ -29,7 +29,8 @@ Orrery ships as a **single unified Windows desktop application (`Orrery.exe`)** 
 - **Zero-invasive read-only collection**: opens T3 Code and Codex SQLite WAL databases in strict read-only mode (`node:sqlite` + `busy_timeout`) and incrementally tails Codex `rollout-*.jsonl` and Antigravity `transcript.jsonl` files—never locks databases and never sends forged upstream probes.
 - **Cross-source deduplication (`T3 → Codex`)**: joins T3 Code runs and Codex native thread IDs into unified task records, combining T3 approvals, project/branch metadata, and subagent trees with Codex step-level tool and token telemetry.
 - **Per-model usage & remaining quotas**: aggregates 24h / today token breakdowns (input, cache read, output, cache hit ratio, call counts) across Antigravity, Codex, and T3 caches, alongside passive Codex remaining-quota windows, custom API detection, and per-card visibility toggles.
-- **24×10 GridStack.js customizable dashboard**: lock/edit mode toggle, drag-and-resize across 11 modular widgets (Model Usage, Active Tasks, Task & Subagent Inspector, Agent Instances, Attention Alerts, Concurrent Swimlane Timeline, Queue & Automations, Agent TODO List, Live Event Stream, Token Burn Chart, Quota & Host), plus multi-preset persistence.
+- **24×10 GridStack.js customizable dashboard**: lock/edit mode toggle, drag-and-resize across 12 modular widgets (Model Usage, Daily Token Activity, Active Tasks, Task & Subagent Inspector, Agent Instances, Attention Alerts, Concurrent Swimlane Timeline, Queue & Automations, Agent TODO List, Live Event Stream, Token Burn Chart, Quota & Host), plus multi-preset persistence.
+- **12-month Daily Token Activity (`TOKEN ACTIVITY`)**: Codex-style daily / weekly / cumulative token activity heatmap across the trailing 12 months with top-right Provider switching (`All`, `OpenAI`, `Gemini`, `Claude`, `DeepSeek`, etc.), 7 preset color themes + custom hex color picker, and Orrery local-first accounting with automatic provider history sync.
 - **Agent-writable TODO List**: dedicated `TODO LIST` widget styled alongside `QUEUE & CRON` so any local AI Agent can create, update, or batch-sync task checklists in real time via `http://127.0.0.1:4318/api/todos`, `~/.orrery/todos.json`, or `node scripts/orrery-todo.mjs`.
 - **14.1" 3840×1100 ergonomics**: viewport-locked zero-scroll canvas with `ResizeObserver` dynamic row height for 100% / 125% / 150% / 175% DPI scaling, plus 3-tier readable font scaling (`标准字号` / `14.1" 大字` / `远距超大`) and Dark / Light theme switching.
 - **Custom background & live glass opacity**: supports solid themes, 4 built-in ultrawide panoramic presets, or local custom images (up to 25 MB, stored in `~/.orrery/`), with real-time sliders for panel opacity, HUD opacity, backdrop blur, and scrim contrast.
@@ -84,6 +85,7 @@ Orrery stores all user preferences cleanly under `%USERPROFILE%\.orrery\`:
 - `layouts.json` — custom GridStack presets and widget coordinates
 - `appearance.json` & `wallpaper.<ext>` — custom background image and glass transparency settings
 - `todos.json` — Agent-writable task checklist hot-reloaded every second (also writable via `POST / PATCH / PUT http://127.0.0.1:4318/api/todos` or `node scripts/orrery-todo.mjs`)
+- `token-activity.json` — persistent daily / per-provider token activity ledger & incremental sync checkpoints
 - `window.json` — desktop monitor lock and virtual desktop pinning preferences:
 
 ```jsonc
@@ -106,7 +108,7 @@ Requires **Node.js 24+** and **Rust 1.85+ / Cargo** (for the Tauri v2 desktop bu
 ```powershell
 npm ci
 npm run build     # Builds @orrery/shared, @orrery/server, and @orrery/web
-npm test          # Runs all 31 server, adapter, reconciler, and API tests
+npm test          # Runs all 32 server, adapter, reconciler, and API tests
 ```
 
 Build the Windows desktop executable and NSIS installer (bundles a standalone Node runtime automatically):

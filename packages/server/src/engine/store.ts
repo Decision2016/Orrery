@@ -1,8 +1,9 @@
-import type { OrrerySnapshot, TodoItem } from '@orrery/shared';
+import type { OrrerySnapshot, TodoItem, TokenActivityPayload } from '@orrery/shared';
 import type { CollectorAdapter, CollectorOutput } from '../adapters/types.js';
 import type { OrreryConfig } from '../config.js';
 import { latestEvents, reconcileOutputs, type ReconcilerHistory } from './reconciler.js';
 import type { TodoStore } from './todos.js';
+import type { TokenActivityStore } from './tokenActivity.js';
 
 interface CollectorHealth {
   id: string;
@@ -25,15 +26,18 @@ export class OrreryStore {
   private startup?: Promise<void>;
   private shutdown?: Promise<void>;
   private todos: TodoItem[] = [];
+  private tokenActivity?: TokenActivityPayload;
   private snapshot: OrrerySnapshot;
 
   constructor(
     private readonly adapters: CollectorAdapter[],
     private readonly config: OrreryConfig,
     private readonly todoStore?: TodoStore,
+    private readonly tokenActivityStore?: TokenActivityStore,
   ) {
     this.collectors = adapters.map(({ id, name, intervalMs }) => ({ id, name, intervalMs, ok: false }));
     this.todoStore?.setOnChange(items => this.setTodos(items));
+    this.tokenActivityStore?.setOnChange(activity => this.setTokenActivity(activity));
     this.snapshot = reconcileOutputs([], { staleThresholdMs: config.staleThresholdMs, serverVersion: config.version });
   }
 
@@ -62,6 +66,14 @@ export class OrreryStore {
     const prevMs = Date.parse(this.snapshot.generatedAt) || 0;
     const generatedAt = new Date(Math.max(Date.now(), prevMs + 1)).toISOString();
     this.snapshot = { ...this.snapshot, generatedAt, todos: items };
+    this.listeners.forEach((_, listener) => listener(this.snapshot));
+  }
+
+  setTokenActivity(activity: TokenActivityPayload) {
+    this.tokenActivity = activity;
+    const prevMs = Date.parse(this.snapshot.generatedAt) || 0;
+    const generatedAt = new Date(Math.max(Date.now(), prevMs + 1)).toISOString();
+    this.snapshot = { ...this.snapshot, generatedAt, tokenActivity: activity };
     this.listeners.forEach((_, listener) => listener(this.snapshot));
   }
 
@@ -94,8 +106,17 @@ export class OrreryStore {
       return output ? [output] : [];
     });
     const next = reconcileOutputs(outputs, {
-      staleThresholdMs: this.config.staleThresholdMs, serverVersion: this.config.version, history: this.history, todos: this.todos,
+      staleThresholdMs: this.config.staleThresholdMs,
+      serverVersion: this.config.version,
+      history: this.history,
+      todos: this.todos,
+      tokenActivity: this.tokenActivity,
     });
+    if (this.tokenActivityStore && next.modelUsage.length) {
+      this.tokenActivityStore.recordLiveUsage(next.modelUsage);
+      next.tokenActivity = this.tokenActivityStore.getPayload();
+      this.tokenActivity = next.tokenActivity;
+    }
     const prevMs = Date.parse(this.snapshot.generatedAt) || 0;
     this.snapshot = Date.parse(next.generatedAt) >= prevMs
       ? next
@@ -144,6 +165,17 @@ export class OrreryStore {
     if (this.todoStore) {
       initial.push(this.pollTodos());
       this.timers.push(setInterval(() => { void this.pollTodos(); }, this.config.pollIntervalMs));
+    }
+    if (this.tokenActivityStore) {
+      const activityStore = this.tokenActivityStore;
+      initial.push(activityStore.load().then(activity => { this.tokenActivity = activity; }));
+      const runSync = () => {
+        const p = activityStore.sync().then(() => {}, () => {}).finally(() => this.inFlight.delete('__token_activity__'));
+        this.inFlight.set('__token_activity__', p);
+        return p;
+      };
+      this.timers.push(setInterval(runSync, Math.max(15_000, this.config.pollIntervalMs * 30)));
+      queueMicrotask(() => { if (this.timers.length) void runSync(); });
     }
     this.timers.push(setInterval(() => this.tick(), this.config.pollIntervalMs));
     this.startup = Promise.all(initial).then(() => { if (this.timers.length) this.tick(); });

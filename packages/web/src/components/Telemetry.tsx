@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Activity, BellRing, ChartNoAxesCombined, Check, Clock3, Cpu, Crosshair, Gauge, Layers3, ListTodo, Radio, RadioTower, ScrollText, Waypoints, X } from 'lucide-react';
+import { Activity, BellRing, CalendarRange, ChartNoAxesCombined, Check, Clock3, Cpu, Crosshair, Gauge, Layers3, ListTodo, Radio, RadioTower, ScrollText, Waypoints, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { SourceKind, TaskStatus, WidgetType } from '@orrery/shared';
 import { percent, sourceNames, statusColorClass, statusLabel } from '../lib/format';
@@ -8,7 +8,7 @@ import { openTarget } from '../lib/api';
 
 export const widgetIcons: Record<WidgetType, LucideIcon> = {
   agents: Cpu, 'quota-host': Activity, 'model-usage': Gauge, attention: BellRing, 'active-tasks': Layers3, timeline: ChartNoAxesCombined,
-  inspector: Crosshair, 'queue-cron': Clock3, 'todo-list': ListTodo, 'event-stream': Radio, 'token-chart': Waypoints,
+  inspector: Crosshair, 'queue-cron': Clock3, 'todo-list': ListTodo, 'event-stream': Radio, 'token-chart': Waypoints, 'token-activity': CalendarRange,
 };
 
 export function WidgetIcon({ type, size }: { type: WidgetType; size: number }) {

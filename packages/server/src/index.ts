@@ -8,6 +8,7 @@ import { AppearanceStore } from './engine/appearance.js';
 import { LayoutStore } from './engine/layouts.js';
 import { OrreryStore } from './engine/store.js';
 import { TodoStore } from './engine/todos.js';
+import { TokenActivityStore } from './engine/tokenActivity.js';
 import { createRequestHandler } from './routes/api.js';
 
 export async function startServer(overrideConfig: Partial<OrreryConfig> = {}) {
@@ -15,7 +16,8 @@ export async function startServer(overrideConfig: Partial<OrreryConfig> = {}) {
   const layoutStore = new LayoutStore(config);
   const appearanceStore = new AppearanceStore(config);
   const todoStore = new TodoStore(config);
-  const store = new OrreryStore(createDefaultAdapters(config), config, todoStore);
+  const tokenActivityStore = new TokenActivityStore(config);
+  const store = new OrreryStore(createDefaultAdapters(config), config, todoStore, tokenActivityStore);
   let closing: Promise<void> | undefined;
   let server: Server;
   function close() {
@@ -30,7 +32,7 @@ export async function startServer(overrideConfig: Partial<OrreryConfig> = {}) {
   function onSignal() {
     void close().catch(error => { console.error(error); process.exitCode = 1; });
   }
-  server = createServer(createRequestHandler({ store, layoutStore, appearanceStore, todoStore, config, onShutdown: onSignal }));
+  server = createServer(createRequestHandler({ store, layoutStore, appearanceStore, todoStore, tokenActivityStore, config, onShutdown: onSignal }));
   server.listen(config.port, config.host);
   await once(server, 'listening');
   const address = server.address();

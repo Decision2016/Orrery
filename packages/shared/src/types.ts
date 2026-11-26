@@ -228,6 +228,46 @@ export interface TokenRatePoint {
   activeTasks: number;
 }
 
+export interface DailyProviderTokens {
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  calls: number;
+}
+
+export interface DailyTokenPoint {
+  date: string;
+  totalTokens: number;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  calls: number;
+  byProvider: Record<string, DailyProviderTokens>;
+}
+
+export interface TokenProviderMeta {
+  id: string;
+  name: string;
+  totalTokens: number;
+  todayTokens: number;
+  activeDays: number;
+}
+
+export interface TokenActivityPayload {
+  updatedAt: string;
+  lastSyncedAt?: string;
+  syncing?: boolean;
+  days: DailyTokenPoint[];
+  providers: TokenProviderMeta[];
+}
+
+export const CORE_TOKEN_PROVIDERS: readonly { id: string; name: string }[] = [
+  { id: 'openai', name: 'OpenAI' },
+  { id: 'gemini', name: 'Gemini' },
+  { id: 'claude', name: 'Claude' },
+];
+
 export type TodoStatus = 'pending' | 'in_progress' | 'blocked' | 'done';
 
 export type TodoPriority = 'low' | 'normal' | 'high' | 'critical';
@@ -276,6 +316,7 @@ export interface OrrerySnapshot {
   todos: TodoItem[];
   events: EventEntry[];
   tokenHistory: TokenRatePoint[];
+  tokenActivity?: TokenActivityPayload;
   processes: ProcessMetric[];
 }
 
@@ -290,7 +331,8 @@ export type WidgetType =
   | 'queue-cron'
   | 'todo-list'
   | 'event-stream'
-  | 'token-chart';
+  | 'token-chart'
+  | 'token-activity';
 
 export interface WidgetMeta {
   type: WidgetType;

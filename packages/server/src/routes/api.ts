@@ -8,6 +8,7 @@ import { AppearanceStore, AppearanceValidationError, MAX_WALLPAPER_BYTES } from 
 import { LayoutStore, LayoutValidationError } from '../engine/layouts.js';
 import type { OrreryStore } from '../engine/store.js';
 import { TodoNotFoundError, TodoStore, TodoValidationError } from '../engine/todos.js';
+import type { TokenActivityStore } from '../engine/tokenActivity.js';
 
 const MAX_BODY = 1024 * 1024;
 const LOCAL_ORIGIN = /^(?:https?:\/\/(?:localhost|127\.0\.0\.1|tauri\.localhost)(?::\d{1,5})?|tauri:\/\/localhost)$/i;
@@ -90,11 +91,12 @@ async function launch(command: string, args: string[]) {
   child.unref();
 }
 
-export function createRequestHandler({ store, layoutStore, appearanceStore, todoStore, config, onShutdown }: {
-  store: Pick<OrreryStore, 'getHealth' | 'getSnapshot' | 'getTask' | 'subscribe'> & Partial<Pick<OrreryStore, 'setTodos'>>;
+export function createRequestHandler({ store, layoutStore, appearanceStore, todoStore, tokenActivityStore, config, onShutdown }: {
+  store: Pick<OrreryStore, 'getHealth' | 'getSnapshot' | 'getTask' | 'subscribe'> & Partial<Pick<OrreryStore, 'setTodos' | 'setTokenActivity'>>;
   layoutStore: LayoutStore;
   appearanceStore?: AppearanceStore;
   todoStore?: TodoStore;
+  tokenActivityStore?: TokenActivityStore;
   config: Pick<OrreryConfig, 'webDistDir'> & Partial<Pick<OrreryConfig, 'appearanceFilePath' | 'todosFilePath'>>;
   onShutdown?: () => void;
 }) {
@@ -123,6 +125,7 @@ export function createRequestHandler({ store, layoutStore, appearanceStore, todo
         if (pathname === '/api/snapshot') return json(res, 200, store.getSnapshot());
         if (pathname === '/api/layouts') return json(res, 200, await layoutStore.load());
         if (pathname === '/api/todos' && todos) return json(res, 200, await todos.payload());
+        if (pathname === '/api/token-activity' && tokenActivityStore) return json(res, 200, await tokenActivityStore.load());
         if (pathname === '/api/appearance' && appearance) return json(res, 200, await appearance.load());
         if (pathname === '/api/appearance/wallpaper' && appearance) {
           const wallpaper = await appearance.readWallpaper();
@@ -186,6 +189,13 @@ export function createRequestHandler({ store, layoutStore, appearanceStore, todo
           const result = await todos.clear(searchParams.get('all') === 'true');
           return json(res, 200, { ok: true, ...result });
         }
+      }
+      if (req.method === 'POST' && pathname === '/api/token-activity/sync' && tokenActivityStore) {
+        const body = req.headers['content-length'] === '0' ? {} : await readJson(req).catch(() => ({}));
+        const force = Boolean(body && typeof body === 'object' && 'force' in body && body.force);
+        const activity = await tokenActivityStore.sync({ force });
+        store.setTokenActivity?.(activity);
+        return json(res, 200, activity);
       }
       if (req.method === 'PUT' && pathname === '/api/appearance' && appearance) {
         return json(res, 200, await appearance.save(await readJson(req)));

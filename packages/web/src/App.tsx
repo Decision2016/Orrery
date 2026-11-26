@@ -4,7 +4,7 @@ import { useAppearance } from './hooks/useAppearance';
 import { useLayouts } from './hooks/useLayouts';
 import { useOrreryStream } from './hooks/useOrreryStream';
 import { apiPath, requestAlerts } from './lib/api';
-import { isActive, sourceNames } from './lib/format';
+import { formatTokens, isActive, sourceNames } from './lib/format';
 import { readLocal, writeLocal } from './lib/storage';
 import { AppearancePanel } from './components/AppearancePanel';
 import { GridCanvas } from './components/GridCanvas';
@@ -23,6 +23,7 @@ import { QueueCronWidget } from './components/widgets/QueueCronWidget';
 import { TodoListWidget } from './components/widgets/TodoListWidget';
 import { EventStreamWidget } from './components/widgets/EventStreamWidget';
 import { TokenChartWidget } from './components/widgets/TokenChartWidget';
+import { TokenActivityWidget } from './components/widgets/TokenActivityWidget';
 
 export default function App() {
   const layouts = useLayouts();
@@ -118,6 +119,7 @@ export default function App() {
   const count = (n: number) => snapshot ? String(n).padStart(2, '0') : '—';
   const modelUsage = snapshot?.modelUsage ?? [];
   const openTodos = view.todos.filter(t => t.status !== 'done').length;
+  const activityTotal = snapshot?.tokenActivity?.providers.reduce((sum, p) => sum + p.totalTokens, 0) ?? 0;
   const badges: Record<WidgetType, string> = {
     agents: snapshot ? `${snapshot.agents.filter(a => a.status === 'online').length}/${snapshot.agents.length} ONLINE` : '—',
     'quota-host': snapshot ? `${snapshot.quotas.length} WINDOWS` : '—',
@@ -126,6 +128,7 @@ export default function App() {
     inspector: selected ? (selectedId ? 'PINNED' : 'AUTO') : '—', 'queue-cron': count(view.scheduled.length),
     'todo-list': snapshot ? `${openTodos}/${view.todos.length} OPEN` : '—', 'event-stream': count(view.events.length),
     'token-chart': snapshot ? `${snapshot.tokenHistory.length} SAMPLES` : '—',
+    'token-activity': snapshot ? `${formatTokens(activityTotal)} TOTAL` : '—',
   };
   function renderWidget(type: WidgetType) {
     if (!snapshot) return <EmptyState icon={widgetIcons[type]}>{connection === 'offline' ? '本地观测服务离线' : '等待遥测快照'}</EmptyState>;
@@ -141,6 +144,7 @@ export default function App() {
       case 'todo-list': return <TodoListWidget todos={view.todos} onNotice={setNotice} />;
       case 'event-stream': return <EventStreamWidget events={view.events} onSelect={selectTask} />;
       case 'token-chart': return <TokenChartWidget history={snapshot.tokenHistory} />;
+      case 'token-activity': return <TokenActivityWidget activity={snapshot.tokenActivity} onNotice={setNotice} />;
     }
   }
 

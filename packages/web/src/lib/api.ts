@@ -1,4 +1,4 @@
-import type { AttentionAlert, TodoItem, TodoPriority, TodoStatus } from '@orrery/shared';
+import type { AttentionAlert, TodoItem, TodoPriority, TodoStatus, TokenActivityPayload } from '@orrery/shared';
 
 declare global {
   interface Window {
@@ -113,6 +113,20 @@ export async function clearCompletedTodos(): Promise<number> {
     throw new Error('清理待办失败 · ' + message);
   }
   return result && typeof result === 'object' && 'removed' in result && typeof result.removed === 'number' ? result.removed : 0;
+}
+
+export async function syncTokenActivity(force = false): Promise<TokenActivityPayload> {
+  const response = await fetch(apiPath('token-activity/sync'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force }),
+  });
+  const result: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : `HTTP ${response.status}`;
+    throw new Error('同步 Token 活动失败 · ' + message);
+  }
+  return result as TokenActivityPayload;
 }
 
 export async function requestAlerts() {

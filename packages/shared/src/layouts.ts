@@ -114,6 +114,16 @@ export const WIDGET_CATALOG: Record<WidgetType, WidgetMeta> = {
     minW: 4,
     minH: 3,
   },
+  'token-activity': {
+    type: 'token-activity',
+    title: '每日 Token 活动统计',
+    shortTitle: 'TOKEN ACTIVITY',
+    description: '近 12 个月每日 / 每周 / 累计 Token 活动热力图，支持按 OpenAI、Gemini、Claude 等 Provider 切换与同步',
+    defaultW: 10,
+    defaultH: 4,
+    minW: 6,
+    minH: 3,
+  },
 };
 
 const NOW_ISO = '2026-01-01T00:00:00.000Z';

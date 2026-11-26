@@ -18,6 +18,7 @@ import { LayoutStore, LayoutValidationError } from './layouts.js';
 import { reconcileOutputs, type ReconcilerHistory } from './reconciler.js';
 import { OrreryStore } from './store.js';
 import { TodoStore, TodoValidationError } from './todos.js';
+import { TokenActivityStore, toLocalDateKey } from './tokenActivity.js';
 
 const now = new Date(2026, 7, 10, 12).getTime();
 const at = (offset = 0) => new Date(now + offset).toISOString();
@@ -347,17 +348,24 @@ test('HTTP API, streaming, local actions, and static wallboard routes', { timeou
   const config = {
     ...loadConfig(),
     webDistDir,
+    t3UserDataDir: path.join(dir, 't3', 'userdata'),
+    t3CachesDir: path.join(dir, 't3', 'caches'),
+    codexDir: path.join(dir, 'codex'),
+    claudeDir: path.join(dir, 'claude'),
+    geminiDir: path.join(dir, 'gemini'),
     layoutsFilePath: path.join(dir, 'data', 'layouts.json'),
     todosFilePath: path.join(dir, 'data', 'todos.json'),
+    tokenActivityFilePath: path.join(dir, 'data', 'token-activity.json'),
     pollIntervalMs: 40,
   };
   const archived = Array.from({ length: 85 }, (_, i) => task('detail:' + i, { status: 'completed', updatedAt: at(-i) }));
   const fixture: CollectorAdapter = { id: 'fixture', name: 'Fixture', intervalMs: 60_000,
     collect: async () => output('fixture', { tasks: archived }) };
   const todoStore = new TodoStore(config);
-  const store = new OrreryStore([fixture], config, todoStore);
+  const tokenActivityStore = new TokenActivityStore(config);
+  const store = new OrreryStore([fixture], config, todoStore, tokenActivityStore);
   await store.start();
-  const server = createServer(createRequestHandler({ store, layoutStore: new LayoutStore(config), todoStore, config }));
+  const server = createServer(createRequestHandler({ store, layoutStore: new LayoutStore(config), todoStore, tokenActivityStore, config }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => {
@@ -532,5 +540,67 @@ test('HTTP API, streaming, local actions, and static wallboard routes', { timeou
     assert.equal(store.getSnapshot().todos[0]?.title, 'Direct file todo');
 
     await assert.rejects(todoStore.upsert({ title: 'Bad', status: 'unknown' }), TodoValidationError);
+  });
+
+  await t.test('TokenActivityStore syncs provider history and prioritizes Orrery local transcripts without double-counting', async () => {
+    const day1Ms = Date.now() - 2 * 86_400_000;
+    const day2Ms = Date.now() - 86_400_000;
+    const day1Key = toLocalDateKey(day1Ms);
+    const day2Key = toLocalDateKey(day2Ms);
+
+    // 1. Seed T3 v17 provider cache with historical OpenAI & Claude entries
+    const sharedCodexRollout = path.join(config.codexDir, 'sessions', '2026', 'rollout-shared.jsonl');
+    await mkdir(path.dirname(sharedCodexRollout), { recursive: true });
+    await mkdir(config.t3UserDataDir, { recursive: true });
+    await writeFile(path.join(config.t3UserDataDir, 'usage-scan-cache-v17.json'), JSON.stringify({
+      version: 17,
+      models: ['gpt-6.2-astra', 'claude-sonnet-5'],
+      sessions: ['s1', 's2'],
+      files: {
+        [sharedCodexRollout]: { s: 10, m: 1000, p: 'codex', r: [[day1Ms, 0, 0, 100, 50, 0, 25, 0, 'k1']], t: [] },
+        'C:/virtual/claude-old.jsonl': { s: 20, m: 1000, p: 'claude', r: [[day1Ms, 1, 1, 300, 100, 0, 80, 0, 'k2']], t: [] },
+      },
+    }));
+
+    // 2. Write newer local Codex rollout (should override v17's stale 175 total for sharedCodexRollout with 500)
+    await writeFile(sharedCodexRollout, [
+      JSON.stringify({ timestamp: new Date(day1Ms).toISOString(), type: 'turn_context', payload: { model: 'gpt-6.2-astra' } }),
+      JSON.stringify({ timestamp: new Date(day1Ms).toISOString(), type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 400, cached_input_tokens: 100, output_tokens: 100, total_tokens: 500 } } } }),
+    ].join('\n') + '\n');
+
+    // 3. Write local Antigravity / Gemini transcript across both roots to verify step deduplication
+    const agDir1 = path.join(config.geminiDir, 'antigravity', 'brain', 'sess-gem', '.system_generated', 'logs');
+    const agDir2 = path.join(config.t3UserDataDir, 'providers', 'antigravity', 'acct1', 'antigravity-acp', 'brain', 'sess-gem', '.system_generated', 'logs');
+    await mkdir(agDir1, { recursive: true });
+    await mkdir(agDir2, { recursive: true });
+    const agLine = JSON.stringify({ type: 'PLANNER_RESPONSE', step_index: 1, model: 'gemini-4-carbon-high', created_at: new Date(day2Ms).toISOString(), input_tokens: 200, cache_read_tokens: 50, output_tokens: 70 }) + '\n';
+    await writeFile(path.join(agDir1, 'transcript.jsonl'), agLine);
+    await writeFile(path.join(agDir2, 'transcript.jsonl'), agLine);
+
+    const syncedRes = await fetch(base + '/api/token-activity/sync', { method: 'POST', body: '{}' });
+    assert.equal(syncedRes.status, 200);
+    const synced = await syncedRes.json() as { days: { date: string; totalTokens: number; byProvider: Record<string, { totalTokens: number }> }[]; providers: { id: string; totalTokens: number }[] };
+
+    const d1 = synced.days.find(d => d.date === day1Key);
+    const d2 = synced.days.find(d => d.date === day2Key);
+    assert.equal(d1?.byProvider.openai?.totalTokens, 500);
+    assert.equal(d1?.byProvider.claude?.totalTokens, 480);
+    assert.equal(d2?.byProvider.gemini?.totalTokens, 320);
+
+    // Core providers (openai, gemini, claude) are always present for top-right switching
+    assert.deepEqual(synced.providers.slice(0, 3).map(p => [p.id, p.totalTokens]), [
+      ['openai', 500],
+      ['gemini', 320],
+      ['claude', 480],
+    ]);
+
+    // Live runtime floor updates today's count immediately
+    const todayKey = toLocalDateKey(Date.now());
+    tokenActivityStore.recordLiveUsage([{
+      providerId: 'antigravity', providerName: 'Antigravity', model: 'gemini-4-carbon',
+      todayTokens: 900, tokens24h: 900, inputTokens24h: 600, cachedTokens24h: 100, outputTokens24h: 200, calls24h: 3, sessions24h: 1,
+    }]);
+    const latest = await (await fetch(base + '/api/token-activity')).json() as typeof synced;
+    assert.equal(latest.days.find(d => d.date === todayKey)?.byProvider.gemini?.totalTokens, 900);
   });
 });
